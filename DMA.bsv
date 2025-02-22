@@ -18,7 +18,7 @@ package DMA;
 
     (* synthesize *)
     module mkDMA (DMA);
-        let resp_fifo_size = 32;
+        let resp_fifo_size = 64;
 
         let xactor <- mkAXI3_Master_Xactor;
         let f_req <- mkFIFOF;

@@ -59,8 +59,9 @@ package Video;
                 addr_ctr <= framebuffer;
         endrule
 
-        rule rl_pop (div && x < 640 && y < 480);
-            f_dma_resp.deq();
+        rule rl_pop (div && x < 640 && y < 480 || (y >= 480 && y < 480 + 10 + 2 + 33 - 1));
+            if(f_dma_resp.notEmpty)
+                f_dma_resp.deq();
         endrule
 
         interface ext = interface Ext_Video;
@@ -81,7 +82,7 @@ package Video;
             endmethod
 
             method data;
-                return f_dma_resp.first[23:0];
+                return f_dma_resp.notEmpty ? f_dma_resp.first[23:0] : 24'hFF;
             endmethod
         endinterface;
 

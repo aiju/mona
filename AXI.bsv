@@ -437,4 +437,30 @@ package AXI;
 
     endmodule
 
+    function Bit #(8) axi3_decode_size(Bit #(3) size);
+        case(size)
+        0: return 1;
+        1: return 2;
+        2: return 4;
+        3: return 8;
+        4: return 16;
+        5: return 32;
+        6: return 64;
+        7: return 128;
+        endcase
+    endfunction
+
+    function Bit #(wd_addr) axi3_next_address(Bit #(wd_addr) addr, Bit #(3) size, Bit #(2) burst, Bit #(4) len)
+        provisos(Add#(ignore, 4, wd_addr), Add#(ignore2, 8, wd_addr));
+        case(burst)
+        2'b00, 2'b11: return addr;
+        2'b01: return addr + extend(axi3_decode_size(size));
+        2'b10: begin
+            let a = addr + extend(axi3_decode_size(size));
+            let m = extend(len)<<size;
+            return (a & m) | (addr & ~m);
+        end
+        endcase
+    endfunction
+
 endpackage
