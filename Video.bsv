@@ -1,32 +1,37 @@
 package Video;
 
     import GetPut :: *;
-    import FIFO :: *;
+    import FIFOF :: *;
+    import Semi_FIFOF :: *;
+    import DMA :: *;
+
+    (* always_ready *)
+    interface Ext_Video;
+        method Bool clk;
+        method Bool hsync;
+        method Bool vsync;
+        method Bool de;
+        method Bit #(24) data;
+    endinterface
     
     interface Video;
-        (* always_ready *)
-        method Bool clk;
-        (* always_ready *)
-        method Bool hsync;
-        (* always_ready *)
-        method Bool vsync;
-        (* always_ready *)
-        method Bool de;
-        (* always_ready *)
-        method Bit #(24) data;
-        interface Put #(Bit #(32)) in_data;
-        (* always_ready *)
-        method Bool consume_pixel;
+        interface Ext_Video ext;
+        interface FIFOF_O #(DMA_Req) dma_req;
+        interface FIFOF_I #(Bit #(32)) dma_resp;
     endinterface
 
     (* synthesize *)
     module mkVideo(Video);
+        FIFOF #(DMA_Req) f_dma_req <- mkFIFOF;
+        FIFOF #(Bit #(32)) f_dma_resp <- mkGFIFOF (False, True);
+
         Reg #(Bool) div <- mkReg (False);
         Reg #(Bit #(16)) x <- mkReg(0);
-        Reg #(Bit #(16)) y <- mkReg(0);
+        Reg #(Bit #(16)) y <- mkReg(480);
 
-        FIFO #(Bit #(32)) fifo <- mkSizedFIFO(64);
-        RWire #(Bit #(32)) data_w <- mkRWire;
+        let framebuffer = 32'h1000_0000;
+
+        Reg #(Bit #(32)) addr_ctr <- mkReg(framebuffer);
 
         rule rl_flip;
             div <= !div;
@@ -46,39 +51,42 @@ package Video;
             y <= 0;
         endrule
 
-        rule rl_read;
-            data_w.wset(fifo.first);
+        rule rl_issue (div && x == 640 && (y < 479 || y == 480 + 10 + 2 + 33 - 1));
+            f_dma_req.enq(DMA_Req {addr: addr_ctr, len: 640 * 4});
+            if(y != 478)
+                addr_ctr <= addr_ctr + 640 * 4;
+            else
+                addr_ctr <= framebuffer;
         endrule
 
         rule rl_pop (div && x < 640 && y < 480);
-            fifo.deq();
+            f_dma_resp.deq();
         endrule
 
-        method clk;
-            return div;
-        endmethod
+        interface ext = interface Ext_Video;
+            method clk;
+                return div;
+            endmethod
 
-        method hsync;
-            return x >= 640+16 && x < 640+16+96;
-        endmethod
+            method hsync;
+                return x >= 640+16 && x < 640+16+96;
+            endmethod
 
-        method vsync;
-            return y >= 480+10 && y < 480+10+2;
-        endmethod
+            method vsync;
+                return y >= 480+10 && y < 480+10+2;
+            endmethod
 
-        method de;
-            return x < 640 && y < 480;
-        endmethod
+            method de;
+                return x < 640 && y < 480;
+            endmethod
 
-        method data;
-            return fromMaybe(0, data_w.wget())[23:0];
-        endmethod
+            method data;
+                return f_dma_resp.first[23:0];
+            endmethod
+        endinterface;
 
-        method consume_pixel;
-            return div && x < 640 && y < 480;
-        endmethod
-
-        interface Put in_data = fifoToPut(fifo);
+        interface dma_req = to_FIFOF_O(f_dma_req);
+        interface dma_resp = to_FIFOF_I(f_dma_resp);
     endmodule
 
 endpackage

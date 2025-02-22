@@ -3,3 +3,5 @@ output_files/
 simulation/
 db/
 incremental_db/
+build/
+c5_pin_model_dump.txt

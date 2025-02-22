@@ -18,7 +18,7 @@ package I2C;
         method Action read();
         method Bool got_ack();
         method Bit #(8) read_data();
-        interface ExtI2C external;
+        interface ExtI2C ext;
     endinterface
     
     typedef enum {
@@ -135,7 +135,7 @@ package I2C;
             return data_reg;
         endmethod
 
-        interface ExtI2C external;
+        interface ExtI2C ext;
             interface Get scl_out = toGet (scl_out_r);
             interface Get sda_out = toGet (sda_out_r);
             interface Put sda_in = toPut (sda_in_w);
