@@ -5,18 +5,19 @@ package DMA_tb;
     import Connectable :: *;
     import StmtFSM :: *;
     import Semi_FIFOF :: *;
+    import Vector :: *;
 
     module mkDMA_tb(Empty);
 
-        let dma <- mkDMA;
+        DMA #(2) dma <- mkDMA;
 
         AXI3_Slave_Xactor_IFC #(32, 32, 8) xactor <- mkAXI3_Slave_Xactor;
 
         mkConnection(dma.mem_ifc, xactor.axi_side);
 
         mkAutoFSM(seq
-            dma.req.enq(DMA_Req {addr: 32'h1000_0000, len: 4 * (16 * 2 + 3)});
-            dma.req.enq(DMA_Req {addr: 32'h1000_0000, len: 4 * 7});
+            dma.req[0].enq(DMA_Req {addr: 32'h1000_0000, len: 4 * (16 * 2 + 3)});
+            dma.req[1].enq(DMA_Req {addr: 32'h1000_0000, len: 4 * 7});
             delay(1000);
         endseq);
 
@@ -49,8 +50,13 @@ package DMA_tb;
         endrule
 
         rule rl_out;
-            let d <- pop_o(dma.resp);
-            $display(fshow(d));
+            let d <- pop_o(dma.resp[0]);
+            $display("0", fshow(d));
+        endrule
+
+        rule rl_out1;
+            let d <- pop_o(dma.resp[1]);
+            $display("1", fshow(d));
         endrule
 
     endmodule

@@ -20,7 +20,7 @@ endinterface
 module mkTopLevel(TopLevel);
     HdmiCtrl hdmi_ctrl <- mkHdmiCtrl;
     Video video <- mkVideo;
-    DMA dma <- mkDMA;
+    DMA #(2) dma <- mkDMA;
 
     mkConnection(video.dma_req, dma.req);
     mkConnection(dma.resp, video.dma_resp);
