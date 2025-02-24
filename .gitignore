@@ -5,3 +5,5 @@ db/
 incremental_db/
 build/
 c5_pin_model_dump.txt
+model/target/
+*.stp
