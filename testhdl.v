@@ -39,6 +39,17 @@ module testhdl(
 	wire		fpga_to_hps_wlast;	// From mkTopLevel_i of mkTopLevel.v
 	wire [3:0]	fpga_to_hps_wstrb;	// From mkTopLevel_i of mkTopLevel.v
 	wire		fpga_to_hps_wvalid;	// From mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_arready;	// From mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_awready;	// From mkTopLevel_i of mkTopLevel.v
+	wire [11:0]	hps_to_fpga_lw_bid;	// From mkTopLevel_i of mkTopLevel.v
+	wire [1:0]	hps_to_fpga_lw_bresp;	// From mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_bvalid;	// From mkTopLevel_i of mkTopLevel.v
+	wire [31:0]	hps_to_fpga_lw_rdata;	// From mkTopLevel_i of mkTopLevel.v
+	wire [11:0]	hps_to_fpga_lw_rid;	// From mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_rlast;	// From mkTopLevel_i of mkTopLevel.v
+	wire [1:0]	hps_to_fpga_lw_rresp;	// From mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_rvalid;	// From mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_wready;	// From mkTopLevel_i of mkTopLevel.v
 	// End of automatics
 
 	wire		fpga_to_hps_arready;	// To mkTopLevel_i of mkTopLevel.v
@@ -52,6 +63,32 @@ module testhdl(
 	wire [1:0]	fpga_to_hps_rresp;	// To mkTopLevel_i of mkTopLevel.v
 	wire		fpga_to_hps_rvalid;	// To mkTopLevel_i of mkTopLevel.v
 	wire		fpga_to_hps_wready;	// To mkTopLevel_i of mkTopLevel.v
+
+	wire [31:0]	hps_to_fpga_lw_araddr;	// To mkTopLevel_i of mkTopLevel.v
+	wire [1:0]	hps_to_fpga_lw_arburst;	// To mkTopLevel_i of mkTopLevel.v
+	wire [3:0]	hps_to_fpga_lw_arcache;	// To mkTopLevel_i of mkTopLevel.v
+	wire [11:0]	hps_to_fpga_lw_arid;	// To mkTopLevel_i of mkTopLevel.v
+	wire [3:0]	hps_to_fpga_lw_arlen;	// To mkTopLevel_i of mkTopLevel.v
+	wire [1:0]	hps_to_fpga_lw_arlock;	// To mkTopLevel_i of mkTopLevel.v
+	wire [2:0]	hps_to_fpga_lw_arprot;	// To mkTopLevel_i of mkTopLevel.v
+	wire [2:0]	hps_to_fpga_lw_arsize;	// To mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_arvalid;	// To mkTopLevel_i of mkTopLevel.v
+	wire [31:0]	hps_to_fpga_lw_awaddr;	// To mkTopLevel_i of mkTopLevel.v
+	wire [1:0]	hps_to_fpga_lw_awburst;	// To mkTopLevel_i of mkTopLevel.v
+	wire [3:0]	hps_to_fpga_lw_awcache;	// To mkTopLevel_i of mkTopLevel.v
+	wire [11:0]	hps_to_fpga_lw_awid;	// To mkTopLevel_i of mkTopLevel.v
+	wire [3:0]	hps_to_fpga_lw_awlen;	// To mkTopLevel_i of mkTopLevel.v
+	wire [1:0]	hps_to_fpga_lw_awlock;	// To mkTopLevel_i of mkTopLevel.v
+	wire [2:0]	hps_to_fpga_lw_awprot;	// To mkTopLevel_i of mkTopLevel.v
+	wire [2:0]	hps_to_fpga_lw_awsize;	// To mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_awvalid;	// To mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_bready;	// To mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_rready;	// To mkTopLevel_i of mkTopLevel.v
+	wire [31:0]	hps_to_fpga_lw_wdata;	// To mkTopLevel_i of mkTopLevel.v
+	wire [11:0]	hps_to_fpga_lw_wid;	// To mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_wlast;	// To mkTopLevel_i of mkTopLevel.v
+	wire [3:0]	hps_to_fpga_lw_wstrb;	// To mkTopLevel_i of mkTopLevel.v
+	wire		hps_to_fpga_lw_wvalid;	// To mkTopLevel_i of mkTopLevel.v
 
 	reg rst_n;
 	initial rst_n = 1'b0;
@@ -103,6 +140,17 @@ module testhdl(
 				.fpga_to_hps_arprot(fpga_to_hps_arprot[2:0]),
 				.fpga_to_hps_arlock(fpga_to_hps_arlock[1:0]),
 				.fpga_to_hps_rready(fpga_to_hps_rready),
+				.hps_to_fpga_lw_awready(hps_to_fpga_lw_awready),
+				.hps_to_fpga_lw_wready(hps_to_fpga_lw_wready),
+				.hps_to_fpga_lw_bvalid(hps_to_fpga_lw_bvalid),
+				.hps_to_fpga_lw_bid(hps_to_fpga_lw_bid[11:0]),
+				.hps_to_fpga_lw_bresp(hps_to_fpga_lw_bresp[1:0]),
+				.hps_to_fpga_lw_arready(hps_to_fpga_lw_arready),
+				.hps_to_fpga_lw_rvalid(hps_to_fpga_lw_rvalid),
+				.hps_to_fpga_lw_rid(hps_to_fpga_lw_rid[11:0]),
+				.hps_to_fpga_lw_rresp(hps_to_fpga_lw_rresp[1:0]),
+				.hps_to_fpga_lw_rdata(hps_to_fpga_lw_rdata[31:0]),
+				.hps_to_fpga_lw_rlast(hps_to_fpga_lw_rlast),
 				// Inputs
 				.hdmi_int	(hdmi_int),
 				.fpga_to_hps_awready(fpga_to_hps_awready),
@@ -115,24 +163,76 @@ module testhdl(
 				.fpga_to_hps_rid(fpga_to_hps_rid[7:0]),
 				.fpga_to_hps_rresp(fpga_to_hps_rresp[1:0]),
 				.fpga_to_hps_rdata(fpga_to_hps_rdata[31:0]),
-				.fpga_to_hps_rlast(fpga_to_hps_rlast));
+				.fpga_to_hps_rlast(fpga_to_hps_rlast),
+				.hps_to_fpga_lw_awvalid(hps_to_fpga_lw_awvalid),
+				.hps_to_fpga_lw_awid(hps_to_fpga_lw_awid[11:0]),
+				.hps_to_fpga_lw_awaddr(hps_to_fpga_lw_awaddr[31:0]),
+				.hps_to_fpga_lw_awlen(hps_to_fpga_lw_awlen[3:0]),
+				.hps_to_fpga_lw_awsize(hps_to_fpga_lw_awsize[2:0]),
+				.hps_to_fpga_lw_awburst(hps_to_fpga_lw_awburst[1:0]),
+				.hps_to_fpga_lw_awcache(hps_to_fpga_lw_awcache[3:0]),
+				.hps_to_fpga_lw_awprot(hps_to_fpga_lw_awprot[2:0]),
+				.hps_to_fpga_lw_awlock(hps_to_fpga_lw_awlock[1:0]),
+				.hps_to_fpga_lw_wvalid(hps_to_fpga_lw_wvalid),
+				.hps_to_fpga_lw_wid(hps_to_fpga_lw_wid[11:0]),
+				.hps_to_fpga_lw_wdata(hps_to_fpga_lw_wdata[31:0]),
+				.hps_to_fpga_lw_wstrb(hps_to_fpga_lw_wstrb[3:0]),
+				.hps_to_fpga_lw_wlast(hps_to_fpga_lw_wlast),
+				.hps_to_fpga_lw_bready(hps_to_fpga_lw_bready),
+				.hps_to_fpga_lw_arvalid(hps_to_fpga_lw_arvalid),
+				.hps_to_fpga_lw_arid(hps_to_fpga_lw_arid[11:0]),
+				.hps_to_fpga_lw_araddr(hps_to_fpga_lw_araddr[31:0]),
+				.hps_to_fpga_lw_arlen(hps_to_fpga_lw_arlen[3:0]),
+				.hps_to_fpga_lw_arsize(hps_to_fpga_lw_arsize[2:0]),
+				.hps_to_fpga_lw_arburst(hps_to_fpga_lw_arburst[1:0]),
+				.hps_to_fpga_lw_arcache(hps_to_fpga_lw_arcache[3:0]),
+				.hps_to_fpga_lw_arprot(hps_to_fpga_lw_arprot[2:0]),
+				.hps_to_fpga_lw_arlock(hps_to_fpga_lw_arlock[1:0]),
+				.hps_to_fpga_lw_rready(hps_to_fpga_lw_rready));
 
-	/*cyclonev_hps_interface_hps2fpga_light_weight hps2fpga_light_weight(
+	cyclonev_hps_interface_hps2fpga_light_weight hps2fpga_light_weight(
 		.clk(clk),
-		.arvalid(arvalid),
-		.arready(!rvalid),
-		.arid(arid),
-		.rvalid(rvalid),
-		.rready(rready),
-		.rlast(1'b1),
-		.rdata(32'hDEADBEEF),
-		.rid(rid),
-		.rresp(2'b00)
-	);*/
+		.awready(hps_to_fpga_lw_awready),
+		.wready(hps_to_fpga_lw_wready),
+		.bvalid(hps_to_fpga_lw_bvalid),
+		.bid(hps_to_fpga_lw_bid[11:0]),
+		.bresp(hps_to_fpga_lw_bresp[1:0]),
+		.arready(hps_to_fpga_lw_arready),
+		.rvalid(hps_to_fpga_lw_rvalid),
+		.rid(hps_to_fpga_lw_rid[11:0]),
+		.rresp(hps_to_fpga_lw_rresp[1:0]),
+		.rdata(hps_to_fpga_lw_rdata[31:0]),
+		.rlast(hps_to_fpga_lw_rlast),
+		.awvalid(hps_to_fpga_lw_awvalid),
+		.awid(hps_to_fpga_lw_awid[11:0]),
+		.awaddr(hps_to_fpga_lw_awaddr[31:0]),
+		.awlen(hps_to_fpga_lw_awlen[3:0]),
+		.awsize(hps_to_fpga_lw_awsize[2:0]),
+		.awburst(hps_to_fpga_lw_awburst[1:0]),
+		.awcache(hps_to_fpga_lw_awcache[3:0]),
+		.awprot(hps_to_fpga_lw_awprot[2:0]),
+		.awlock(hps_to_fpga_lw_awlock[1:0]),
+		.wvalid(hps_to_fpga_lw_wvalid),
+		.wid(hps_to_fpga_lw_wid[11:0]),
+		.wdata(hps_to_fpga_lw_wdata[31:0]),
+		.wstrb(hps_to_fpga_lw_wstrb[3:0]),
+		.wlast(hps_to_fpga_lw_wlast),
+		.bready(hps_to_fpga_lw_bready),
+		.arvalid(hps_to_fpga_lw_arvalid),
+		.arid(hps_to_fpga_lw_arid[11:0]),
+		.araddr(hps_to_fpga_lw_araddr[31:0]),
+		.arlen(hps_to_fpga_lw_arlen[3:0]),
+		.arsize(hps_to_fpga_lw_arsize[2:0]),
+		.arburst(hps_to_fpga_lw_arburst[1:0]),
+		.arcache(hps_to_fpga_lw_arcache[3:0]),
+		.arprot(hps_to_fpga_lw_arprot[2:0]),
+		.arlock(hps_to_fpga_lw_arlock[1:0]),
+		.rready(hps_to_fpga_lw_rready)
+	);
 
 	cyclonev_hps_interface_fpga2hps fpga2hps(
 		.clk(clk),
-		.port_size_config(2'b01),
+		.port_size_config(2'b00),
 		.awvalid(fpga_to_hps_awvalid),
 		.awid(fpga_to_hps_awid[7:0]),
 		.awaddr(fpga_to_hps_awaddr[31:0]),
@@ -172,3 +272,7 @@ module testhdl(
 	);
 
 endmodule
+
+// Local Variables:
+// verilog-library-directories:("." "build")
+// End:

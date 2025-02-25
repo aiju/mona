@@ -78,11 +78,11 @@ package AXI;
         (* always_ready, result="awready" *) method Bool m_awready;
     
         (* always_ready, always_enabled, prefix="" *) method Action m_wvalid (
-            (* port="wvalid" *) Bool m_wvalid,
-            (* port="wid" *) Bit #(wd_id) m_wid,
-            (* port="wdata" *) Bit #(wd_data) m_wdata,
-            (* port="wstrb" *) Bit #(TDiv #(wd_data, 8)) m_wstrb,
-            (* port="wlast" *) Bool m_wlast);
+            (* port="wvalid" *) Bool wvalid,
+            (* port="wid" *) Bit #(wd_id) wid,
+            (* port="wdata" *) Bit #(wd_data) wdata,
+            (* port="wstrb" *) Bit #(TDiv #(wd_data, 8)) wstrb,
+            (* port="wlast" *) Bool wlast);
         (* always_ready, result="wready" *) method Bool m_wready;
 
         (* always_ready, result="bvalid" *) method Bool m_bvalid;
@@ -109,7 +109,7 @@ package AXI;
         (* always_ready, result="rdata" *) method Bit #(wd_data) m_rdata;
         (* always_ready, result="rlast" *) method Bool m_rlast;
         (* always_ready, always_enabled, prefix="" *) method Action m_rready (
-            (*port="bready"*) Bool rready);
+            (*port="rready"*) Bool rready);
 
     endinterface
 

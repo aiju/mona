@@ -4,6 +4,9 @@ BSCFLAGS=-bdir build -vdir build -simdir build -p .:%/Libraries:lib
 build: 
 	bsc -verilog -g mkTopLevel -u $(BSCFLAGS) TopLevel.bsv
 
+verilog.%:
+	bsc -verilog -g mk$* -u $(BSCFLAGS) $*.bsv
+
 simbuild.%:
 	bsc -sim -g mk$* -u $(BSCFLAGS) $*.bsv
 	bsc -sim -e mk$* $(BSCFLAGS) -o build/$*.sim

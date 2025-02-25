@@ -5,6 +5,9 @@ package AxiToSimple;
     import AXI :: *;
     import FIFOF :: *;
     import Semi_FIFOF :: *;
+    import CBus :: *;
+    import Connectable::*;
+    import ConfigDefs :: *;
 
     typedef struct {
         Bit #(32) addr;
@@ -31,7 +34,7 @@ package AxiToSimple;
 
     interface AxiToSimple;
         interface AXI3_Slave_IFC #(32, 32, 12) axi;
-        interface Server #(Simple_Req, Simple_Resp) simple;
+        interface Client #(Simple_Req, Simple_Resp) simple;
     endinterface
     
     function ActionValue #(t) pop(FIFOF #(t) fifo);
@@ -41,6 +44,7 @@ package AxiToSimple;
         endactionvalue
     endfunction
 
+    (* synthesize *)
     module mkAxiToSimple(AxiToSimple);
         let xactor <- mkAXI3_Slave_Xactor;
 
@@ -57,6 +61,7 @@ package AxiToSimple;
         Reg #(Bit #(12)) id <- mkRegU;
         Reg #(Bool) error <- mkRegU;
 
+        (* preempts = "rl_start_read, rl_start_write" *)
         rule rl_start_read (state == IDLE);
             let r <- pop_o(xactor.rd_addr);
             state <= READ_REQ;
@@ -138,7 +143,29 @@ package AxiToSimple;
         endrule
 
         interface AXI3_Slave_IFC axi = xactor.axi_side;
-        interface Server simple = toGPServer(f_req, f_resp);
+        interface Client simple = toGPClient(f_req, f_resp);
     endmodule
+
+    instance Connectable #(
+        Client #(Simple_Req, Simple_Resp),
+        ConfigBus);
+
+        module mkConnection #(
+            Client #(Simple_Req, Simple_Resp) simple,
+            ConfigBus cbus)
+            (Empty);
+
+            rule rl_process;
+                let req <- simple.request.get();
+                if(req.wr) begin
+                    cbus.write(truncate(req.addr), req.wdata);
+                    simple.response.put(Simple_Resp { ok: True, rdata: ? });
+                end else begin
+                    let rdata <- cbus.read(truncate(req.addr));
+                    simple.response.put(Simple_Resp { ok: True, rdata: rdata });
+                end
+            endrule
+        endmodule
+    endinstance
 
 endpackage
