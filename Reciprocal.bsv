@@ -3,6 +3,7 @@ package Reciprocal;
     import FIFOF :: *;
     import Semi_FIFOF :: *;
     import Vector :: *;
+    import Util :: *;
 
     typedef struct {
         Bit #(n) value;
@@ -34,8 +35,6 @@ package Reciprocal;
         FIFOF #(RData #(n)) s0 <- mkFIFOF;
         Vector #(TAdd #(N_Iter, 1), FIFOF #(RData #(n))) s1 <- replicateM (mkFIFOF);
         Vector #(N_Iter, FIFOF #(RData #(n))) s2 <- replicateM (mkFIFOF);
-
-        function ActionValue #(t) pop(FIFOF #(t) fifo) = actionvalue fifo.deq; return fifo.first; endactionvalue;
 
         rule rl_s0;
             let x <- pop(f_in);

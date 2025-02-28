@@ -15,6 +15,8 @@ package TopLevel;
     import FineRaster::*;
     import PixelOut::*;
     import Vector::*;
+    import FIFOF::*;
+    import Util :: *;
 
 interface TopLevel;
     (* always_ready *) method Bit #(8) led;
@@ -33,12 +35,17 @@ module [ModWithConfig] mkInternals(TopLevel);
     HdmiCtrl hdmi_ctrl <- mkHdmiCtrl;
     Video video <- mkVideo;
     DMA #(2, 1) dma <- mkDMA;
+    Starter starter <- mkStarter;
     CoarseRaster coarse_raster <- mkCoarseRaster;
     FineRaster fine_raster <- mkFineRaster;
     PixelOut pixel_out <- mkPixelOut;
 
-    mkConnection(video.dma_req, dma.rd_req[1]);
-    mkConnection(dma.rd_data[1], video.dma_resp);
+    mkConnection(video.dma_req, dma.rd_req[0]);
+    mkConnection(dma.rd_data[0], video.dma_resp);
+
+    mkConnection(starter.dma_req, dma.rd_req[1]);
+    mkConnection(starter.dma_resp, dma.rd_data[1]);
+    mkConnection(starter.out, coarse_raster.in);
 
     mkConnection(coarse_raster.out, fine_raster.in);
     mkConnection(fine_raster.out, pixel_out.in);
@@ -46,51 +53,6 @@ module [ModWithConfig] mkInternals(TopLevel);
     mkConnection(pixel_out.dma_req, dma.wr_req[0]);
     mkConnection(pixel_out.dma_data, dma.wr_data[0]);
     mkConnection(pixel_out.dma_resp, dma.wr_resp[0]);
-
-    Reg #(Bool) dma_start <- mkCBRegRW(CRAddr { a: 12'h4, o : 0}, False);
-
-    Reg #(CoarseRasterIn) data <- mkRegU;
-
-    let fsm <- mkFSM (seq
-        dma.rd_req[0].enq(DMA_Req { addr: 32'h1020_0000, len: 68 });
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[0].x <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[0].y <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[0].a <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[1].x <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[1].y <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[1].a <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[2].x <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[2].y <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.edge_fns[2].a <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.uv[0][0] <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.uv[0][1] <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.uv[1][0] <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.uv[1][1] <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.uv[2][0] <= unpack(truncate(x)); endaction
-        action let x <- pop_o(dma.rd_data[0]); data.uv[2][1] <= unpack(truncate(x)); endaction
-        action 
-            let x <- pop_o(dma.rd_data[0]);
-            let d = data;
-            d.min_y = unpack(x[24:16]);
-            d.min_x = unpack(x[8:0]);
-            data <= d;
-        endaction
-        action 
-            let x <- pop_o(dma.rd_data[0]);
-            let d = data;
-            d.max_y = unpack(x[24:16]);
-            d.max_x = unpack(x[8:0]);
-            data <= d;
-        endaction
-        coarse_raster.in.enq(data);
-    endseq);
-
-    rule rl_start;
-        if(dma_start) begin
-            fsm.start;
-            dma_start <= False;
-        end
-    endrule
 
     interface ExtI2C ext_i2c = hdmi_ctrl.ext_i2c;
     interface Video ext_video = video.ext;
@@ -112,6 +74,77 @@ module mkTopLevel(TopLevelWithAxiSlave);
     interface top_level = top.device_ifc;
     interface hps_to_fpga_lw = reg_if.axi;
 
+endmodule
+
+interface Starter;
+    interface FIFOF_O #(DMA_Req) dma_req;
+    interface FIFOF_I #(Bit #(32)) dma_resp;
+    interface FIFOF_O #(CoarseRasterIn) out;
+endinterface
+
+module [ModWithConfig] mkStarter(Starter);
+    FIFOF #(DMA_Req) f_dma_req <- mkFIFOF;
+    FIFOF #(Bit #(32)) f_dma_resp <- mkFIFOF;
+    FIFOF #(CoarseRasterIn) f_out <- mkFIFOF;
+
+    Reg #(Bool) dma_start <- mkCBRegRW(CRAddr { a: 12'h4, o : 0}, False);
+    Reg #(Bit #(16)) dma_len <- mkCBRegRW(CRAddr { a: 12'h4, o : 16}, 0);
+
+    Reg #(Bit #(32)) addr <- mkRegU;
+    Reg #(Bit #(16)) ctr  <- mkRegU;
+
+    Reg #(CoarseRasterIn) data <- mkRegU;
+
+    let fsm <- mkFSM (seq
+        f_dma_req.enq(DMA_Req { addr: 32'h1020_0000, len: 68 * extend(ctr) });
+        while(ctr > 0) seq
+            action let x <- pop(f_dma_resp); data.edge_fns[0].x <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[0].y <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[0].a <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[1].x <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[1].y <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[1].a <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[2].x <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[2].y <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.edge_fns[2].a <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.uv[0][0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.uv[0][1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.uv[1][0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.uv[1][1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.uv[2][0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); data.uv[2][1] <= unpack(truncate(x)); endaction
+            action 
+                let x <- pop(f_dma_resp);
+                let d = data;
+                d.min_y = unpack(x[24:16]);
+                d.min_x = unpack(x[8:0]);
+                data <= d;
+            endaction
+            action 
+                let x <- pop(f_dma_resp);
+                let d = data;
+                d.max_y = unpack(x[24:16]);
+                d.max_x = unpack(x[8:0]);
+                data <= d;
+            endaction
+            f_out.enq(data);
+            ctr <= ctr - 1;
+        endseq
+    endseq);
+
+    rule rl_start;
+        if(dma_start) begin
+            if(dma_len > 0) begin
+                fsm.start;
+                ctr <= dma_len;
+            end
+            dma_start <= False;
+        end
+    endrule
+
+    interface dma_req = to_FIFOF_O(f_dma_req);
+    interface dma_resp = to_FIFOF_I(f_dma_resp);
+    interface out = to_FIFOF_O(f_out);
 endmodule
 
 endpackage

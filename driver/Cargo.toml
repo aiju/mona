@@ -1,0 +1,9 @@
+[package]
+name = "driver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2.170"
+memmap = "0.7.0"
+rs_common = { version = "0.1.0", path = "../rs_common" }

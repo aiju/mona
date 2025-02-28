@@ -6,4 +6,6 @@ incremental_db/
 build/
 c5_pin_model_dump.txt
 model/target/
+rs_common/target/
+driver/target/
 *.stp
