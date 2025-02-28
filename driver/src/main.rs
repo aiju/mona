@@ -4,14 +4,20 @@ use rs_common::*;
 use std::{
     fs::{File, OpenOptions},
     os::unix::fs::OpenOptionsExt,
-    thread::sleep,
-    time::Duration,
 };
 
 const MEM_START: u32 = 0x10000000;
 const MEM_LEN: u32 = 16 * 1024 * 1024;
 const REG_START: u32 = 0xFF200000;
 const REG_LEN: u32 = 4096;
+
+const R_STATUS: u32 = 0x000;
+const R_START: u32 = 0x004;
+const R_DISPLAY_FB: u32 = 0x008;
+const R_RENDER_TARGET: u32 = 0x00C;
+
+const FRAMEBUFFER1: u32 = MEM_START;
+const FRAMEBUFFER2: u32 = MEM_START + 4 * 1048576;
 
 use memmap::MmapOptions;
 
@@ -58,6 +64,13 @@ impl Hw {
             ptr.write_volatile(value);
         }
     }
+    fn get_reg(&mut self, addr: u32) -> u32 {
+        assert!(addr < REG_LEN && (addr & 3) == 0);
+        unsafe {
+            let ptr = self.regs.as_mut_ptr().byte_add(addr as usize) as *mut u32;
+            ptr.read_volatile()
+        }
+    }
     fn set_reg(&mut self, addr: u32, value: u32) {
         assert!(addr < REG_LEN && (addr & 3) == 0);
         unsafe {
@@ -101,7 +114,7 @@ impl Triangle {
 fn main() {
     let mut hw = Hw::new().unwrap();
 
-
+    let (mut render_fb, mut display_fb) = (FRAMEBUFFER1, FRAMEBUFFER2);
 
     let mut t = 0.0;
 
@@ -126,11 +139,18 @@ fn main() {
         }
 
         for i in 0..640 * 480 / 16 {
-            hw.write(MEM_START + i * 4 * 16, [0x66666666u32; 16]);
+            hw.write(render_fb + i * 4 * 16, [0x66666666u32; 16]);
         }
-        hw.set_reg(0x04, 1 | len << 16);
+        hw.set_reg(R_RENDER_TARGET, render_fb);
+        hw.set_reg(R_START, 1 | len << 16);
+        hw.set_reg(R_START, 2);
+        while hw.get_reg(R_STATUS) & 4 == 0 {}
+        hw.set_reg(R_STATUS, 4);
 
-        sleep(Duration::from_millis(100));
+        while hw.get_reg(R_STATUS) & 1 == 0 || hw.get_reg(R_STATUS) & 2 != 0 {}
+        hw.set_reg(R_STATUS, 1);
+        std::mem::swap(&mut render_fb, &mut display_fb);
+        hw.set_reg(R_DISPLAY_FB, display_fb);
 
         t += 0.01;
     }

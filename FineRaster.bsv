@@ -5,12 +5,15 @@ package FineRaster;
     import Vector :: *;
     import CoarseRaster :: *;
 
-    typedef struct {
-        UInt #(9) tx;
-        UInt #(9) ty;
-        Bit #(16) pixels;
-        Vector #(3, EdgeFn) edge_fns;
-        Vector #(3, Vector #(2, Int #(27))) uv;
+    typedef union tagged {
+        void Flush;
+        struct {
+            UInt #(9) tx;
+            UInt #(9) ty;
+            Bit #(16) pixels;
+            Vector #(3, EdgeFn) edge_fns;
+            Vector #(3, Vector #(2, Int #(27))) uv;
+        } Tile;
     } FineRasterOut
     deriving (Bits, FShow);
 
@@ -34,17 +37,21 @@ package FineRaster;
             && edge_fn(e, pixel, 2) >= 0;
 
         rule rl_step;
-            let p = f_in.first;
             f_in.deq;
-            Bit #(16) pixels = pack(genWith(check_inside(p.edge_fns)));
-            if(pixels != 0)
-                f_out.enq(FineRasterOut {
-                    tx: p.tx,
-                    ty: p.ty,
-                    pixels: pixels,
-                    edge_fns: p.edge_fns,
-                    uv: p.uv
-                });
+            case(f_in.first) matches
+                tagged Flush : f_out.enq(tagged Flush);
+                tagged Tile .p : begin
+                    Bit #(16) pixels = pack(genWith(check_inside(p.edge_fns)));
+                    if(pixels != 0)
+                        f_out.enq(tagged Tile {
+                            tx: p.tx,
+                            ty: p.ty,
+                            pixels: pixels,
+                            edge_fns: p.edge_fns,
+                            uv: p.uv
+                        });
+                end
+            endcase
         endrule
 
         interface in = to_FIFOF_I(f_in);

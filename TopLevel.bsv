@@ -87,47 +87,56 @@ module [ModWithConfig] mkStarter(Starter);
     FIFOF #(Bit #(32)) f_dma_resp <- mkFIFOF;
     FIFOF #(CoarseRasterIn) f_out <- mkFIFOF;
 
-    Reg #(Bool) dma_start <- mkCBRegRW(CRAddr { a: 12'h4, o : 0}, False);
-    Reg #(Bit #(16)) dma_len <- mkCBRegRW(CRAddr { a: 12'h4, o : 16}, 0);
+    Reg #(Bool) dma_start <- mkCBRegRW(cfg_start, False);
+    Reg #(Bool) issue_flush <- mkCBRegRW(CRAddr { a: cfg_start.a, o: 1}, False);
+    Reg #(Bit #(16)) dma_len <- mkCBRegRW(CRAddr { a: cfg_start.a, o : 16}, 0);
 
     Reg #(Bit #(32)) addr <- mkRegU;
     Reg #(Bit #(16)) ctr  <- mkRegU;
 
-    Reg #(CoarseRasterIn) data <- mkRegU;
+    Reg #(Vector #(3, EdgeFn)) edge_fns <- mkRegU;
+    Reg #(Vector #(3, Vector #(2, Int #(27)))) uv <- mkRegU;
+    Reg #(UInt #(9)) min_x <- mkRegU;
+    Reg #(UInt #(9)) min_y <- mkRegU;
+    Reg #(UInt #(9)) max_x <- mkRegU;
+    Reg #(UInt #(9)) max_y <- mkRegU;
 
     let fsm <- mkFSM (seq
         f_dma_req.enq(DMA_Req { addr: 32'h1020_0000, len: 68 * extend(ctr) });
         while(ctr > 0) seq
-            action let x <- pop(f_dma_resp); data.edge_fns[0].x <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[0].y <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[0].a <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[1].x <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[1].y <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[1].a <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[2].x <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[2].y <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.edge_fns[2].a <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.uv[0][0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.uv[0][1] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.uv[1][0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.uv[1][1] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.uv[2][0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); data.uv[2][1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[0].x <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[0].y <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[0].a <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[1].x <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[1].y <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[1].a <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[2].x <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[2].y <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); edge_fns[2].a <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); uv[0][0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); uv[0][1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); uv[1][0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); uv[1][1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); uv[2][0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); uv[2][1] <= unpack(truncate(x)); endaction
             action 
                 let x <- pop(f_dma_resp);
-                let d = data;
-                d.min_y = unpack(x[24:16]);
-                d.min_x = unpack(x[8:0]);
-                data <= d;
+                min_y <= unpack(x[24:16]);
+                min_x <= unpack(x[8:0]);
             endaction
             action 
                 let x <- pop(f_dma_resp);
-                let d = data;
-                d.max_y = unpack(x[24:16]);
-                d.max_x = unpack(x[8:0]);
-                data <= d;
+                max_y <= unpack(x[24:16]);
+                max_x <= unpack(x[8:0]);
             endaction
-            f_out.enq(data);
+            f_out.enq(tagged Triangle { 
+                edge_fns: edge_fns,
+                uv: uv,
+                min_x: min_x,
+                min_y: min_y,
+                max_x: max_x,
+                max_y: max_y
+            });
             ctr <= ctr - 1;
         endseq
     endseq);
@@ -139,6 +148,14 @@ module [ModWithConfig] mkStarter(Starter);
                 ctr <= dma_len;
             end
             dma_start <= False;
+        end
+    endrule
+
+    rule rl_flush;
+        if(issue_flush) begin
+            fsm.waitTillDone;
+            f_out.enq(tagged Flush);
+            issue_flush <= False;
         end
     endrule
 

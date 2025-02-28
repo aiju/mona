@@ -5,6 +5,8 @@ package Video;
     import Semi_FIFOF :: *;
     import DMA :: *;
     import Vector :: *;
+    import CBus :: *;
+    import ConfigDefs :: *;
 
     (* always_ready *)
     interface Ext_Video;
@@ -21,8 +23,7 @@ package Video;
         interface FIFOF_I #(Bit #(32)) dma_resp;
     endinterface
 
-    (* synthesize *)
-    module mkVideo(Video);
+    module [ModWithConfig] mkVideo(Video);
         FIFOF #(DMA_Req) f_dma_req <- mkFIFOF;
         FIFOF #(Bit #(32)) f_dma_resp <- mkGFIFOF (False, True);
 
@@ -30,9 +31,11 @@ package Video;
         Reg #(Bit #(16)) x <- mkReg(0);
         Reg #(Bit #(16)) y <- mkReg(480);
 
-        let framebuffer = 32'h1000_0000;
+        Reg #(Bit #(32)) framebuffer <- mkCBRegRW(cfg_display_framebuffer, 32'h1000_0000);
+        Reg #(Bool) seen_vsync <- mkCBRegRC(cfg_status_vsync, False);
+        Reg #(Bool) in_vsync <- mkCBRegR(cfg_status_in_vsync, False);
 
-        Reg #(Bit #(32)) addr_ctr <- mkReg(framebuffer);
+        Reg #(Bit #(32)) addr_ctr <- mkReg(32'h1000_0000);
 
         rule rl_flip;
             div <= !div;
@@ -43,6 +46,13 @@ package Video;
         endrule
 
         rule rl_inc_y (div && x == 640 + 16 + 96 + 48 - 1 && y < 480 + 10 + 2 + 33 - 1);
+            if(y == 479) begin
+                seen_vsync <= True;
+                in_vsync <= True;
+            end
+            if(y == 0) begin
+                in_vsync <= False;
+            end
             x <= 0;
             y <= y + 1;
         endrule

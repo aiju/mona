@@ -7,6 +7,8 @@ package PixelOut;
     import DMA :: *;
     import UVInterp :: *;
     import CoarseRaster :: *;
+    import CBus :: *;
+    import ConfigDefs :: *;
 
     interface PixelOut;
         interface FIFOF_I #(FineRasterOut) in;
@@ -15,8 +17,7 @@ package PixelOut;
         interface FIFOF_I #(Bool) dma_resp;
     endinterface
 
-    (* synthesize *)
-    module mkPixelOut(PixelOut);
+    module [ModWithConfig] mkPixelOut(PixelOut);
         FIFOF #(FineRasterOut) f_in <- mkFIFOF;
         FIFOF #(DMA_Req) f_req <- mkFIFOF;
         FIFOF #(Bit #(32)) f_data <- mkFIFOF;
@@ -25,29 +26,40 @@ package PixelOut;
         Reg #(Bit #(4)) ctr <- mkRegU;
         Reg #(FineRasterOut) data <- mkRegU;
 
+        Reg #(Bit #(32)) framebuffer <- mkCBRegRW(cfg_render_target, 32'h1000_0000);
+
+        Reg #(Bool) flushed <- mkCBRegRC(cfg_status_flushed, False);
+
         UVInterp uv_interp <- mkUVInterp;
 
         rule rl_start (!active);
-            active <= True;
-            data <= f_in.first;
-            ctr <= 0;
+            case(f_in.first) matches
+                tagged Flush : flushed <= True;
+                tagged Tile .p : begin
+                    active <= True;
+                    data <= f_in.first;
+                    ctr <= 0;
+                end
+            endcase
             f_in.deq;
         endrule
 
         rule rl_process (active);
-            if(data.pixels[ctr] != 1'b0) begin
+            if(data.Tile.pixels[ctr] != 1'b0) begin
                 f_req.enq(DMA_Req {
-                    addr: 32'h1000_0000
-                        + 640 * 4 * extend({pack(data.ty), ctr[3:2]})
-                        + 4 * extend({pack(data.tx), ctr[1:0]}),
+                    addr: framebuffer
+                        + 640 * 4 * extend({pack(data.Tile.ty), ctr[3:2]})
+                        + 4 * extend({pack(data.Tile.tx), ctr[1:0]}),
                     len: 4
                 });
                 Vector #(3, Int #(27)) edge_vec = newVector;
                 for(Integer i = 0; i < 3; i = i + 1)
-                    edge_vec[i] = data.edge_fns[i].a;
+                    edge_vec[i] = data.Tile.edge_fns[i].a
+                        + data.Tile.edge_fns[i].x * extend(unpack(ctr[1:0]))
+                        + data.Tile.edge_fns[i].y * extend(unpack(ctr[3:2]));
                 uv_interp.in.enq(UVInterpIn {
                     edge_vec: edge_vec,
-                    uv: data.uv
+                    uv: data.Tile.uv
                 });
             end
             if(ctr == 15)

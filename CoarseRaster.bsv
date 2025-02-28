@@ -11,21 +11,27 @@ package CoarseRaster;
     } EdgeFn
     deriving (Bits, FShow);
 
-    typedef struct {
-        Vector #(3, EdgeFn) edge_fns;
-        Vector #(3, Vector #(2, Int #(27))) uv;
-        UInt #(9) min_x;
-        UInt #(9) max_x;
-        UInt #(9) min_y;
-        UInt #(9) max_y;
+    typedef union tagged {
+        void Flush;
+        struct {
+            Vector #(3, EdgeFn) edge_fns;
+            Vector #(3, Vector #(2, Int #(27))) uv;
+            UInt #(9) min_x;
+            UInt #(9) max_x;
+            UInt #(9) min_y;
+            UInt #(9) max_y;
+        } Triangle;
     } CoarseRasterIn
     deriving (Bits, FShow);
 
-    typedef struct {
-        Vector #(3, EdgeFn) edge_fns;
-        Vector #(3, Vector #(2, Int #(27))) uv;
-        UInt #(9) tx;
-        UInt #(9) ty;
+    typedef union tagged {
+        void Flush;
+        struct {
+            Vector #(3, EdgeFn) edge_fns;
+            Vector #(3, Vector #(2, Int #(27))) uv;
+            UInt #(9) tx;
+            UInt #(9) ty;
+        } Tile;
     } CoarseRasterOut
     deriving (Bits, FShow);
 
@@ -67,26 +73,32 @@ package CoarseRaster;
         endfunction
 
         rule rl_start (!active);
-            let p = f_in.first;
             f_in.deq;
-            active <= True;
-            edge_fns <= p.edge_fns;
-            Vector #(3, Int #(27)) new_edge_fns_left = newVector;
-            for(Integer i = 0; i < 3; i = i + 1)
-                new_edge_fns_left[i] = p.edge_fns[i].a;
-            edge_fns_left <= new_edge_fns_left;
-            min_x <= p.min_x;
-            max_x <= p.max_x;
-            min_y <= p.min_y;
-            max_y <= p.max_y;
-            tx <= p.min_x;
-            ty <= p.min_y;
-            uv <= p.uv;
+            case(f_in.first) matches
+                tagged Flush : begin
+                    f_out.enq(tagged Flush);
+                end
+                tagged Triangle .p : begin
+                    active <= True;
+                    edge_fns <= p.edge_fns;
+                    Vector #(3, Int #(27)) new_edge_fns_left = newVector;
+                    for(Integer i = 0; i < 3; i = i + 1)
+                        new_edge_fns_left[i] = p.edge_fns[i].a;
+                    edge_fns_left <= new_edge_fns_left;
+                    min_x <= p.min_x;
+                    max_x <= p.max_x;
+                    min_y <= p.min_y;
+                    max_y <= p.max_y;
+                    tx <= p.min_x;
+                    ty <= p.min_y;
+                    uv <= p.uv;
+                end
+            endcase
         endrule
 
         rule rl_step (active);
             if(viable) begin
-                f_out.enq(CoarseRasterOut {
+                f_out.enq(tagged Tile {
                     edge_fns: edge_fns,
                     tx: tx,
                     ty: ty,
