@@ -1,10 +1,13 @@
+#![allow(dead_code)]
+
 use std::f64::consts::PI;
 
 mod obj_parser;
 
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
-const TILE_SIZE: usize = 4;
+const TILE_SIZE: usize = 8;
+const FINE_TILE_SIZE: usize = 4;
 
 #[derive(Default, Debug)]
 struct Context {
@@ -16,70 +19,68 @@ struct Context {
 }
 
 const VERTICES: &'static [[[f64; 5]; 3]] = &include!("model.rs");
-/* 
-    &[
-        [
-            [-1.0, -1.0, -1.0, 0.0, 0.0],
-            [-1.0, -1.0, 1.0, 0.0, 1.0],
-            [-1.0, 1.0, 1.0, 1.0, 1.0],
-        ],
-        [
-            [-1.0, -1.0, -1.0, 0.0, 0.0],
-            [-1.0, 1.0, 1.0, 1.0, 1.0],
-            [-1.0, 1.0, -1.0, 1.0, 0.0],
-        ],
-        [
-            [1.0, 1.0, 1.0, 1.0, 1.0],
-            [1.0, -1.0, 1.0, 0.0, 1.0],
-            [1.0, -1.0, -1.0, 0.0, 0.0],
-        ],
-        [
-            [1.0, 1.0, 1.0, 1.0, 1.0],
-            [1.0, -1.0, -1.0, 0.0, 0.0],
-            [1.0, 1.0, -1.0, 1.0, 0.0],
-        ],
-        [
-            [1.0, 1.0, 1.0, 1.0, 1.0],
-            [-1.0, 1.0, 1.0, 0.0, 1.0],
-            [-1.0, 1.0, -1.0, 0.0, 0.0],
-        ],
-        [
-            [1.0, 1.0, 1.0, 1.0, 1.0],
-            [-1.0, 1.0, -1.0, 0.0, 0.0],
-            [1.0, 1.0, -1.0, 1.0, 0.0],
-        ],
-        [
-            [1.0, -1.0, 1.0, 1.0, 1.0],
-            [-1.0, -1.0, 1.0, 0.0, 1.0],
-            [-1.0, -1.0, -1.0, 0.0, 0.0],
-        ],
-        [
-            [1.0, -1.0, 1.0, 1.0, 1.0],
-            [-1.0, -1.0, -1.0, 0.0, 0.0],
-            [1.0, -1.0, -1.0, 1.0, 0.0],
-        ],
-        [
-            [-1.0, -1.0, -1.0, 0.0, 0.0],
-            [1.0, -1.0, -1.0, 1.0, 0.0],
-            [1.0, 1.0, -1.0, 1.0, 1.0],
-        ],
-        [
-            [-1.0, -1.0, -1.0, 0.0, 0.0],
-            [1.0, 1.0, -1.0, 1.0, 1.0],
-            [-1.0, 1.0, -1.0, 0.0, 1.0],
-        ],
-        [
-            [-1.0, -1.0, 1.0, 0.0, 0.0],
-            [1.0, -1.0, 1.0, 1.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0, 1.0],
-        ],
-        [
-            [-1.0, -1.0, 1.0, 0.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0, 1.0],
-            [-1.0, 1.0, 1.0, 0.0, 1.0],
-        ],
-    ];
-*/
+const CUBE: &'static [[[f64; 5]; 3]] = &[
+    [
+        [-1.0, -1.0, -1.0, 0.0, 0.0],
+        [-1.0, -1.0, 1.0, 0.0, 1.0],
+        [-1.0, 1.0, 1.0, 1.0, 1.0],
+    ],
+    [
+        [-1.0, -1.0, -1.0, 0.0, 0.0],
+        [-1.0, 1.0, 1.0, 1.0, 1.0],
+        [-1.0, 1.0, -1.0, 1.0, 0.0],
+    ],
+    [
+        [1.0, 1.0, 1.0, 1.0, 1.0],
+        [1.0, -1.0, 1.0, 0.0, 1.0],
+        [1.0, -1.0, -1.0, 0.0, 0.0],
+    ],
+    [
+        [1.0, 1.0, 1.0, 1.0, 1.0],
+        [1.0, -1.0, -1.0, 0.0, 0.0],
+        [1.0, 1.0, -1.0, 1.0, 0.0],
+    ],
+    [
+        [1.0, 1.0, 1.0, 1.0, 1.0],
+        [-1.0, 1.0, 1.0, 0.0, 1.0],
+        [-1.0, 1.0, -1.0, 0.0, 0.0],
+    ],
+    [
+        [1.0, 1.0, 1.0, 1.0, 1.0],
+        [-1.0, 1.0, -1.0, 0.0, 0.0],
+        [1.0, 1.0, -1.0, 1.0, 0.0],
+    ],
+    [
+        [1.0, -1.0, 1.0, 1.0, 1.0],
+        [-1.0, -1.0, 1.0, 0.0, 1.0],
+        [-1.0, -1.0, -1.0, 0.0, 0.0],
+    ],
+    [
+        [1.0, -1.0, 1.0, 1.0, 1.0],
+        [-1.0, -1.0, -1.0, 0.0, 0.0],
+        [1.0, -1.0, -1.0, 1.0, 0.0],
+    ],
+    [
+        [-1.0, -1.0, -1.0, 0.0, 0.0],
+        [1.0, -1.0, -1.0, 1.0, 0.0],
+        [1.0, 1.0, -1.0, 1.0, 1.0],
+    ],
+    [
+        [-1.0, -1.0, -1.0, 0.0, 0.0],
+        [1.0, 1.0, -1.0, 1.0, 1.0],
+        [-1.0, 1.0, -1.0, 0.0, 1.0],
+    ],
+    [
+        [-1.0, -1.0, 1.0, 0.0, 0.0],
+        [1.0, -1.0, 1.0, 1.0, 0.0],
+        [1.0, 1.0, 1.0, 1.0, 1.0],
+    ],
+    [
+        [-1.0, -1.0, 1.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0, 1.0, 1.0],
+        [-1.0, 1.0, 1.0, 0.0, 1.0],
+    ],
+];
 
 type Matrix = [[f64; 4]; 4];
 
@@ -110,31 +111,34 @@ fn translate(x: f64, y: f64, z: f64) -> Matrix {
 
 fn projection(fov_y: f64, width: f64, height: f64, near: f64, far: f64) -> Matrix {
     let f = (fov_y / 2.0 * PI / 180.0).tan();
-    let t = near * f;
-    let r = t * width / height;
     [
-        [width * near / r / 2.0, 0.0, -width / 2.0, 0.0],
-        [0.0, height * near / t / 2.0, -height / 2.0, 0.0],
-        [
-            0.0,
-            0.0,
-            (near + far) / (near - far),
-            2.0 * far * near / (far - near),
-        ],
-        [0.0, 0.0, -1.0, 0.0],
+        [width / (2.0 * f), 0.0, width / 2.0, 0.0],
+        [0.0, -width / (2.0 * f), height / 2.0, 0.0],
+        [0.0, 0.0, far / (near - far), far * near / (near - far)],
+        [0.0, 0.0, 1.0, 0.0],
     ]
 }
 
-fn matmul(m: Matrix, n: Matrix) -> Matrix {
-    let mut r = [[0.0; 4]; 4];
-    for i in 0..4 {
-        for j in 0..4 {
-            for k in 0..4 {
-                r[i][j] += m[i][k] * n[k][j];
+fn matmul(args: &[Matrix]) -> Matrix {
+    args.iter()
+        .copied()
+        .reduce(|m, n| {
+            let mut r = [[0.0; 4]; 4];
+            for i in 0..4 {
+                for j in 0..4 {
+                    for k in 0..4 {
+                        r[i][j] += m[i][k] * n[k][j];
+                    }
+                }
             }
-        }
-    }
-    r
+            r
+        })
+        .unwrap_or([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
 }
 
 fn matmulv(m: Matrix, p: [f64; 4]) -> [f64; 4] {
@@ -175,6 +179,14 @@ fn lerp2(a: [f64; 2], b: [f64; 2], l: f64) -> [f64; 2] {
 struct BarePrimitive {
     vertices: [[f64; 4]; 3],
     uv: [[f64; 2]; 3],
+}
+
+#[derive(Debug, Clone)]
+struct BBox {
+    min_x: usize,
+    max_x: usize,
+    min_y: usize,
+    max_y: usize,
 }
 
 impl BarePrimitive {
@@ -249,108 +261,199 @@ impl BarePrimitive {
             uv: self.uv,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-struct Primitive {
-    vertices: [[f64; 4]; 3],
-    uv: [[f64; 2]; 3],
-    edge_fns: [[f64; 3]; 3],
-    signed_area: f64,
-}
-
-impl Primitive {
-    fn new(p: &BarePrimitive) -> Self {
-        let mut edge_fns = [[0.0; 3]; 3];
+    fn edge_mat(&self) -> Option<[[f64; 3]; 3]> {
+        let [x0, y0, _, w0] = self.vertices[0];
+        let [x1, y1, _, w1] = self.vertices[1];
+        let [x2, y2, _, w2] = self.vertices[2];
+        let mut d = x0 * y1 * w2 + y0 * w1 * x2 + w0 * x1 * y2;
+        d -= x0 * w1 * y2 + y0 * x1 * w2 + w0 * y1 * x2;
+        if d.abs() < 1e-9 {
+            None
+        } else {
+            d = 1.0 / d;
+            Some([
+                [
+                    (w2 * y1 - w1 * y2) * d,
+                    (w0 * y2 - w2 * y0) * d,
+                    (w1 * y0 - w0 * y1) * d,
+                ],
+                [
+                    (w1 * x2 - w2 * x1) * d,
+                    (w2 * x0 - w0 * x2) * d,
+                    (w0 * x1 - w1 * x0) * d,
+                ],
+                [
+                    (x1 * y2 - x2 * y1) * d,
+                    (x2 * y0 - x0 * y2) * d,
+                    (x0 * y1 - x1 * y0) * d,
+                ],
+            ])
+        }
+    }
+    fn extent(&self, xy: usize) -> Option<[f64; 2]> {
+        let size = if xy != 0 { HEIGHT } else { WIDTH } as f64;
+        let mut min = size;
+        let mut max = 0.0;
+        let mut lr = [0; 3];
+        let mut anyvis = true;
         for i in 0..3 {
-            let ax = -(p.vertices[(i + 2) % 3][1] - p.vertices[(i + 1) % 3][1]);
-            let ay = p.vertices[(i + 2) % 3][0] - p.vertices[(i + 1) % 3][0];
-            let c = -(ax * p.vertices[(i + 1) % 3][0] + ay * p.vertices[(i + 1) % 3][1]);
-            edge_fns[i] = [ax, ay, c];
+            if self.vertices[i][xy] < 0.0 {
+                lr[i] |= 1;
+            }
+            let r = size * self.vertices[i][3] - self.vertices[i][xy];
+            if r < 0.0 {
+                lr[i] |= 2;
+            }
+            if lr[i] == 0 {
+                anyvis = true;
+                if self.vertices[i][xy] - min * self.vertices[i][3] < 0.0 {
+                    min = self.vertices[i][xy] / self.vertices[i][3];
+                }
+                if self.vertices[i][xy] - max * self.vertices[i][3] > 0.0 {
+                    max = self.vertices[i][xy] / self.vertices[i][3];
+                }
+            }
         }
-        let signed_area = edge_fns[0][2] + edge_fns[1][2] + edge_fns[2][2];
-        Primitive {
-            vertices: p.vertices,
-            uv: p.uv,
-            edge_fns,
-            signed_area,
+        if lr[0] | lr[1] | lr[2] == 0 {
+            Some([min, max])
+        } else if lr[0] & lr[1] & lr[2] != 0 {
+            None
+        } else if !anyvis {
+            println!("bailed");
+            Some([0.0, size])
+        } else {
+            for i in 0..3 {
+                if lr[i] & 1 != 0 && self.vertices[i][xy] - min * self.vertices[i][3] < 0.0 {
+                    min = 0.0;
+                }
+                if lr[i] & 2 != 0 && self.vertices[i][xy] - max * self.vertices[i][3] > 0.0 {
+                    max = size;
+                }
+            }
+            Some([min, max])
         }
+    }
+    fn bbox(&self) -> Option<BBox> {
+        let [x0, x1] = self.extent(0)?;
+        let [y0, y1] = self.extent(1)?;
+        Some(BBox {
+            min_x: (x0 / TILE_SIZE as f64).clamp(0.0, ((WIDTH - 1) / TILE_SIZE) as f64) as usize,
+            min_y: (y0 / TILE_SIZE as f64).clamp(0.0, ((HEIGHT - 1) / TILE_SIZE) as f64) as usize,
+            max_x: (x1 / TILE_SIZE as f64).clamp(0.0, ((WIDTH - 1) / TILE_SIZE) as f64) as usize,
+            max_y: (y1 / TILE_SIZE as f64).clamp(0.0, ((HEIGHT - 1) / TILE_SIZE) as f64) as usize,
+        })
+    }
+    fn dummy_bbox(&self) -> Option<BBox> {
+        Some(BBox {
+            min_x: 0,
+            min_y: 0,
+            max_x: (WIDTH - 1) / TILE_SIZE,
+            max_y: (HEIGHT - 1) / TILE_SIZE,
+        })
     }
 }
 
-fn find_tiles(ctx: &mut Context, p: &Primitive) -> Vec<[usize; 2]> {
-    /*if p.signed_area < 0.0 {
-        return vec![];
-    }*/
+#[derive(Debug, Clone)]
+struct CoarseRasterIn {
+    edge_mat: [[f64; 3]; 3],
+    uv: [[f64; 2]; 3],
+    bbox: BBox,
+}
+
+impl CoarseRasterIn {
+    fn new(p: &BarePrimitive) -> Option<Self> {
+        let bbox = p.bbox()?;
+        let edge_mat = p.edge_mat()?;
+        Some(CoarseRasterIn {
+            edge_mat,
+            uv: p.uv,
+            bbox,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Tile {
+    pos: [usize; 2],
+    edge_vec: [f64; 3],
+}
+
+fn coarse_raster(ctx: &mut Context, p: &CoarseRasterIn) -> Vec<Tile> {
     ctx.primitives += 1;
     let mut tiles = Vec::new();
-    let min_y = (0..3)
-        .map(|i| p.vertices[i][1])
-        .min_by(f64::total_cmp)
-        .unwrap();
-    let max_y = (0..3)
-        .map(|i| p.vertices[i][1])
-        .max_by(f64::total_cmp)
-        .unwrap();
-    let min_x = (0..3)
-        .map(|i| p.vertices[i][0])
-        .min_by(f64::total_cmp)
-        .unwrap();
-    let max_x = (0..3)
-        .map(|i| p.vertices[i][0])
-        .max_by(f64::total_cmp)
-        .unwrap();
-    let t = TILE_SIZE as f64;
-    let y0 = ((min_y / t)
-        .floor()
-        .clamp(0.0, ((HEIGHT - 1) / TILE_SIZE) as f64)
-        * t) as usize;
-    let y1 = ((max_y / t)
-        .ceil()
-        .clamp(0.0, ((HEIGHT - 1) / TILE_SIZE) as f64)
-        * t) as usize;
-    let x0 = ((min_x / t)
-        .floor()
-        .clamp(0.0, ((WIDTH - 1) / TILE_SIZE) as f64)
-        * t) as usize;
-    let x1 = ((max_x / t)
-        .ceil()
-        .clamp(0.0, ((WIDTH - 1) / TILE_SIZE) as f64)
-        * t) as usize;
-    for y in (y0..=y1).step_by(TILE_SIZE) {
-        for x in (x0..=x1).step_by(TILE_SIZE) {
+    let mut e_left = [0, 1, 2].map(|i| {
+        p.edge_mat[0][i] * (p.bbox.min_x * TILE_SIZE) as f64
+            + p.edge_mat[1][i] * (p.bbox.min_y * TILE_SIZE) as f64
+            + p.edge_mat[2][i]
+    });
+    for y in p.bbox.min_y..=p.bbox.max_y {
+        let mut e = e_left;
+        for x in p.bbox.min_x..=p.bbox.max_x {
             ctx.coarse_tiles += 1;
-            let e: [[f64; 3]; 4] = [
-                [0, 1, 2].map(|i| {
-                    p.edge_fns[i][0] * x as f64 + p.edge_fns[i][1] * y as f64 + p.edge_fns[i][2]
-                }),
-                [0, 1, 2].map(|i| {
-                    p.edge_fns[i][0] * (x + TILE_SIZE - 1) as f64
-                        + p.edge_fns[i][1] * y as f64
-                        + p.edge_fns[i][2]
-                }),
-                [0, 1, 2].map(|i| {
-                    p.edge_fns[i][0] * x as f64
-                        + p.edge_fns[i][1] * (y + TILE_SIZE - 1) as f64
-                        + p.edge_fns[i][2]
-                }),
-                [0, 1, 2].map(|i| {
-                    p.edge_fns[i][0] * (x + TILE_SIZE - 1) as f64
-                        + p.edge_fns[i][1] * (y + TILE_SIZE - 1) as f64
-                        + p.edge_fns[i][2]
-                }),
-            ];
-            let can_pos = (0..3).all(|j| (0..4).any(|i| e[i][j] >= 0.0));
-            let can_neg = (0..3).all(|j| (0..4).any(|i| e[i][j] <= 0.0));
-            if can_pos || can_neg {
-                ctx.fine_tiles += 1;
-                tiles.push([x, y]);
+            let mut c = [[0.0; 3]; 4];
+            for i in 0..3 {
+                c[0][i] = e[i];
+                c[1][i] = e[i] + p.edge_mat[0][i] * (TILE_SIZE - 1) as f64;
+                c[2][i] = e[i] + p.edge_mat[1][i] * (TILE_SIZE - 1) as f64;
+                c[3][i] = e[i] + (p.edge_mat[0][i] + p.edge_mat[1][i]) * (TILE_SIZE - 1) as f64;
             }
+            let ok = (0..3).all(|j| (0..4).any(|i| c[i][j] >= 0.0));
+            if ok {
+                ctx.fine_tiles += ((TILE_SIZE / FINE_TILE_SIZE) * (TILE_SIZE / FINE_TILE_SIZE)) as u64;
+                tiles.push(Tile {
+                    pos: [x, y],
+                    edge_vec: e,
+                });
+            }
+            for i in 0..3 {
+                e[i] += p.edge_mat[0][i] * TILE_SIZE as f64;
+            }
+        }
+        for i in 0..3 {
+            e_left[i] += p.edge_mat[1][i] * TILE_SIZE as f64;
         }
     }
     tiles
 }
 
+fn fine_raster(
+    ctx: &mut Context,
+    p: &CoarseRasterIn,
+    tile: &Tile,
+    buffer: &mut [u32],
+    depth: &mut [f64],
+    texture: &RgbImage,
+) {
+    for oy in 0..TILE_SIZE {
+        for ox in 0..TILE_SIZE {
+            let y = tile.pos[1] * TILE_SIZE + oy;
+            let x = tile.pos[0] * TILE_SIZE + ox;
+            let e = [0, 1, 2].map(|i| {
+                tile.edge_vec[i] + p.edge_mat[0][i] * ox as f64 + p.edge_mat[1][i] * oy as f64
+            });
+            let inside = e.iter().all(|&p| p >= 0.0);
+            if !inside {
+                continue;
+            }
+            ctx.inside_pixels += 1;
+            let wr = e[0] + e[1] + e[2];
+            let depth_ptr = &mut depth[y * WIDTH + x];
+            if wr <= *depth_ptr {
+                continue;
+            }
+            *depth_ptr = wr;
+            ctx.depth_pass_pixels += 1;
+            let u = (0..3).map(|i| p.uv[i][0] * e[i]).sum::<f64>() / wr;
+            let v = (0..3).map(|i| p.uv[i][1] * e[i]).sum::<f64>() / wr;
+            let tx = ((u * (texture.width() as f64)) as u32).clamp(0, texture.width() - 1);
+            let ty = ((v * (texture.height() as f64)) as u32).clamp(0, texture.height() - 1);
+            let rgb = texture.get_pixel(tx, ty);
+            buffer[y * WIDTH + x] =
+                rgb.0[2] as u32 | (rgb.0[1] as u32) << 8 | (rgb.0[0] as u32) << 16;
+        }
+    }
+}
+/*
 fn render_primitive(
     ctx: &mut Context,
     p: &Primitive,
@@ -398,17 +501,36 @@ fn render_primitive(
         }
     }
 }
+    */
 
 fn render_frame(
     ctx: &mut Context,
-    primitives: &[Primitive],
-    mut buffer: &mut [u32],
+    primitives: &[BarePrimitive],
+    matrix: Matrix,
+    buffer: &mut [u32],
     texture: &RgbImage,
 ) {
     buffer.fill(0);
-    let mut depth = [f64::INFINITY; WIDTH * HEIGHT];
-    for p in primitives {
-        render_primitive(ctx, &p, &mut buffer, &mut depth, texture);
+    let mut depth = [-f64::INFINITY; WIDTH * HEIGHT];
+    let data = primitives
+        .iter()
+        .map(|p| p.transform(matrix))
+        .flat_map(|p| CoarseRasterIn::new(&p))
+        .collect::<Vec<_>>();
+    for p in &data {
+        for tile in coarse_raster(ctx, p) {
+            fine_raster(ctx, &p, &tile, buffer, &mut depth, texture);
+        }
+    }
+    for p in &data {
+        for x in p.bbox.min_x * TILE_SIZE..(p.bbox.max_x + 1) * TILE_SIZE {
+            buffer[p.bbox.min_y * TILE_SIZE * WIDTH + x] = 0xffffff;
+            buffer[((p.bbox.max_y + 1) * TILE_SIZE - 1) * WIDTH + x] = 0xffffff;
+        }
+        for y in p.bbox.min_y * TILE_SIZE..(p.bbox.max_y + 1) * TILE_SIZE {
+            buffer[p.bbox.min_x * TILE_SIZE + y * WIDTH] = 0xffffff;
+            buffer[((p.bbox.max_x + 1) * TILE_SIZE - 1) + y * WIDTH] = 0xffffff;
+        }
     }
 }
 
@@ -438,27 +560,15 @@ fn main() {
     let mut t = 0.0;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let matrix = matmul(
-            matmul(
-                projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-                translate(0.0, -1.0, 3.0),
-            ),
-            matmul(
-                rotate(-20.0, [1.0, 0.0, 0.0]),
-                rotate(30.0 * t, [0.0, 1.0, 0.0]),
-            ),
-        );
-        let primitives: Vec<_> = VERTICES
-            .iter()
-            .flat_map(|v| {
-                BarePrimitive::new(*v)
-                    .transform(matrix)
-                    .clip([0.0, 0.0, 1.0, 1.0])
-            })
-            .map(|p| Primitive::new(&p.project()))
-            .collect();
+        let matrix = matmul(&[
+            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
+            translate(0.0, -1.0, 3.0),
+            rotate(-20.0, [1.0, 0.0, 0.0]),
+            rotate(30.0 * t, [0.0, 1.0, 0.0]),
+        ]);
+        let primitives: Vec<_> = VERTICES.iter().map(|v| BarePrimitive::new(*v)).collect();
         let mut ctx = Context::default();
-        render_frame(&mut ctx, &primitives, &mut buffer, &texture);
+        render_frame(&mut ctx, &primitives, matrix, &mut buffer, &texture);
         println!("{:?}", ctx);
 
         t += 10.0 / 60.0;

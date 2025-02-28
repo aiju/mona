@@ -13,3 +13,11 @@ simbuild.%:
 
 sim.%: simbuild.%
 	build/$*.sim -V out.vcd
+
+.PHONY: quartus
+quartus:
+	quartus_map --read_settings_files=on --write_settings_files=off testhdl -c testhdl
+	quartus_fit --read_settings_files=off --write_settings_files=off testhdl -c testhdl
+	quartus_asm --read_settings_files=off --write_settings_files=off testhdl -c testhdl
+	quartus_eda --read_settings_files=off --write_settings_files=off testhdl -c testhdl
+	

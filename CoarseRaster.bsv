@@ -13,17 +13,19 @@ package CoarseRaster;
 
     typedef struct {
         Vector #(3, EdgeFn) edge_fns;
-        UInt #(7) min_x;
-        UInt #(7) max_x;
-        UInt #(7) min_y;
-        UInt #(7) max_y;
+        Vector #(3, Vector #(2, Int #(27))) uv;
+        UInt #(9) min_x;
+        UInt #(9) max_x;
+        UInt #(9) min_y;
+        UInt #(9) max_y;
     } CoarseRasterIn
     deriving (Bits, FShow);
 
     typedef struct {
         Vector #(3, EdgeFn) edge_fns;
-        UInt #(7) tx;
-        UInt #(7) ty;
+        Vector #(3, Vector #(2, Int #(27))) uv;
+        UInt #(9) tx;
+        UInt #(9) ty;
     } CoarseRasterOut
     deriving (Bits, FShow);
 
@@ -32,6 +34,7 @@ package CoarseRaster;
         interface FIFOF_O #(CoarseRasterOut) out;
     endinterface
 
+    (* synthesize *)
     module mkCoarseRaster(CoarseRaster);
         FIFOF #(CoarseRasterIn) f_in <- mkFIFOF;
         FIFOF #(CoarseRasterOut) f_out <- mkFIFOF;
@@ -39,12 +42,13 @@ package CoarseRaster;
         Reg #(Bool) active <- mkReg (False);
         Reg #(Vector #(3, EdgeFn)) edge_fns <- mkRegU;
         Reg #(Vector #(3, Int #(27))) edge_fns_left <- mkRegU;
-        Reg #(UInt #(7)) min_x <- mkRegU;
-        Reg #(UInt #(7)) max_x <- mkRegU;
-        Reg #(UInt #(7)) min_y <- mkRegU;
-        Reg #(UInt #(7)) max_y <- mkRegU;
-        Reg #(UInt #(7)) tx <- mkRegU;
-        Reg #(UInt #(7)) ty <- mkRegU;
+        Reg #(UInt #(9)) min_x <- mkRegU;
+        Reg #(UInt #(9)) max_x <- mkRegU;
+        Reg #(UInt #(9)) min_y <- mkRegU;
+        Reg #(UInt #(9)) max_y <- mkRegU;
+        Reg #(UInt #(9)) tx <- mkRegU;
+        Reg #(UInt #(9)) ty <- mkRegU;
+        Reg #(Vector #(3, Vector #(2, Int #(27)))) uv <- mkRegU;
 
         function Int #(27) edge_fn(Integer i, Integer corner)
             = edge_fns[i].a
@@ -52,18 +56,14 @@ package CoarseRaster;
             + edge_fns[i].y * (corner == 2 || corner == 3 ? 3 : 0);
         function Bool viable;
             Bool can_pos = True;
-            Bool can_neg = True;
             for(Integer i = 0; i < 3; i = i + 1) begin
                 Bool any_pos = False;
-                Bool any_neg = False;
                 for(Integer c = 0; c < 4; c = c + 1) begin
                     any_pos = any_pos || edge_fn(i, c) >= 0;
-                    any_neg = any_neg || edge_fn(i, c) <= 0;
                 end
                 can_pos = can_pos && any_pos;
-                can_neg = can_neg && any_neg;
             end
-            return can_pos || can_neg;
+            return can_pos;
         endfunction
 
         rule rl_start (!active);
@@ -81,6 +81,7 @@ package CoarseRaster;
             max_y <= p.max_y;
             tx <= p.min_x;
             ty <= p.min_y;
+            uv <= p.uv;
         endrule
 
         rule rl_step (active);
@@ -88,7 +89,8 @@ package CoarseRaster;
                 f_out.enq(CoarseRasterOut {
                     edge_fns: edge_fns,
                     tx: tx,
-                    ty: ty
+                    ty: ty,
+                    uv: uv
                 });
             end
             if(tx == max_x) begin
