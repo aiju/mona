@@ -55,8 +55,8 @@ package PixelOut;
                 Vector #(3, Int #(27)) edge_vec = newVector;
                 for(Integer i = 0; i < 3; i = i + 1)
                     edge_vec[i] = data.Tile.edge_fns[i].a
-                        + data.Tile.edge_fns[i].x * extend(unpack(ctr[1:0]))
-                        + data.Tile.edge_fns[i].y * extend(unpack(ctr[3:2]));
+                        + data.Tile.edge_fns[i].x * zeroExtend(unpack(ctr[1:0]))
+                        + data.Tile.edge_fns[i].y * zeroExtend(unpack(ctr[3:2]));
                 uv_interp.in.enq(UVInterpIn {
                     edge_vec: edge_vec,
                     uv: data.Tile.uv

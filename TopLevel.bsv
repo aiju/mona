@@ -17,6 +17,7 @@ package TopLevel;
     import Vector::*;
     import FIFOF::*;
     import Util :: *;
+    import DepthTest :: *;
 
 interface TopLevel;
     (* always_ready *) method Bit #(8) led;
@@ -33,7 +34,7 @@ interface TopLevelWithAxiSlave;
 endinterface
 
 (* synthesize *)
-module mkDMA0(DMA #(1, 1));
+module mkDMA0(DMA #(2, 2));
     let m <- mkDMA;
     return m;
 endmodule
@@ -53,6 +54,7 @@ module [ModWithConfig] mkInternals(TopLevel);
     CoarseRaster coarse_raster <- mkCoarseRaster;
     FineRaster fine_raster <- mkFineRaster;
     PixelOut pixel_out <- mkPixelOut;
+    DepthTest depth_test <- mkDepthTest;
 
     mkConnection(video.dma_req, dma1.rd_req[0]);
     mkConnection(dma1.rd_data[0], video.dma_resp);
@@ -62,7 +64,34 @@ module [ModWithConfig] mkInternals(TopLevel);
     mkConnection(starter.out, coarse_raster.in);
 
     mkConnection(coarse_raster.out, fine_raster.in);
-    mkConnection(fine_raster.out, pixel_out.in);
+    mkConnection(fine_raster.out, depth_test.in);
+    mkConnection(depth_test.out, pixel_out.in);
+
+    mkConnection(depth_test.rd_req, dma0.rd_req[1]);
+    mkConnection(depth_test.wr_req, dma0.wr_req[1]);
+    mkConnection(depth_test.wr_resp, dma0.wr_resp[1]);
+
+    Reg #(Bit #(128)) rdbuf <- mkRegU;
+    mkAutoFSM(seq
+        while(True) seq
+            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
+            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
+            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
+            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
+            depth_test.rd_data.enq(rdbuf);
+        endseq
+    endseq);
+    Reg #(Bit #(128)) wrbuf <- mkRegU;
+    mkAutoFSM(seq
+        while(True) seq
+            action let v <- pop_o(depth_test.wr_data); wrbuf <= v; endaction
+            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
+            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
+            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
+            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
+        endseq
+    endseq);
+
 
     mkConnection(pixel_out.dma_req, dma0.wr_req[0]);
     mkConnection(pixel_out.dma_data, dma0.wr_data[0]);
@@ -103,9 +132,9 @@ module [ModWithConfig] mkStarter(Starter);
     FIFOF #(Bit #(32)) f_dma_resp <- mkFIFOF;
     FIFOF #(CoarseRasterIn) f_out <- mkFIFOF;
 
-    Reg #(Bool) dma_start <- mkCBRegRW(cfg_start, False);
-    Reg #(Bool) issue_flush <- mkCBRegRW(CRAddr { a: cfg_start.a, o: 1}, False);
-    Reg #(Bit #(16)) dma_len <- mkCBRegRW(CRAddr { a: cfg_start.a, o : 16}, 0);
+    Reg #(Bool) dma_start <- mkCBRegRW(cfg_control_start, False);
+    Reg #(Bool) issue_flush <- mkCBRegRW(cfg_control_flush, False);
+    Reg #(Bit #(16)) dma_len <- mkCBRegRW(cfg_control_len, 0);
 
     Reg #(Bit #(32)) addr <- mkRegU;
     Reg #(Bit #(16)) ctr  <- mkRegU;

@@ -1,4 +1,4 @@
-BSCFLAGS=-bdir build -vdir build -simdir build -p .:%/Libraries:lib
+BSCFLAGS=-bdir build -vdir build -simdir build -p .:%/Libraries:lib -aggressive-conditions
 
 .PHONY: build
 build: 
@@ -21,3 +21,6 @@ quartus:
 	quartus_asm --read_settings_files=off --write_settings_files=off testhdl -c testhdl
 	quartus_eda --read_settings_files=off --write_settings_files=off testhdl -c testhdl
 	
+.PHONY: driver
+driver:
+	@(cd driver; cargo build --target armv7-unknown-linux-gnueabihf)

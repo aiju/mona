@@ -12,12 +12,14 @@ const REG_START: u32 = 0xFF200000;
 const REG_LEN: u32 = 4096;
 
 const R_STATUS: u32 = 0x000;
-const R_START: u32 = 0x004;
+const R_CONTROL: u32 = 0x004;
 const R_DISPLAY_FB: u32 = 0x008;
 const R_RENDER_TARGET: u32 = 0x00C;
 
 const FRAMEBUFFER1: u32 = MEM_START;
 const FRAMEBUFFER2: u32 = MEM_START + 4 * 1048576;
+
+const DEPTHBUFFER: u32 = MEM_START + 8 * 1048576;
 
 use memmap::MmapOptions;
 
@@ -125,7 +127,10 @@ fn main() {
             rotate(-20.0, [1.0, 0.0, 0.0]),
             rotate(30.0 * t, [0.0, 1.0, 0.0]),
         ]);
-        let primitives: Vec<_> = include!("../../model/src/model.rs").iter().map(|v| BarePrimitive::new(*v)).collect();
+        let primitives: Vec<_> = include!("../../model/src/model.rs")
+            .iter()
+            .map(|v| BarePrimitive::new(*v))
+            .collect();
 
         let mut len = 0;
         for p in primitives
@@ -138,21 +143,22 @@ fn main() {
             len += 1;
         }
 
-        /* 
+        /*
         let s = 10.0 * t % 100.0;
+        let tri = Triangle::new(
+            &CoarseRasterIn::new(&BarePrimitive {
+                vertices: [
+                    [100.0 + s, 100.0 + s, 1.0, 1.0],
+                    [200.0 + s, 100.0 + s, 1.0, 1.0],
+                    [100.0 + s, 200.0 + s, 1.0, 1.0],
+                ],
+                uv: [[0.0, 0.0], [1.0, 0.0], [1.0, 0.0]],
+            })
+            .unwrap());
+        println!("{tri:?}");
         hw.write(
             MEM_START + 2 * 1048576,
-            Triangle::new(
-                &CoarseRasterIn::new(&BarePrimitive {
-                    vertices: [
-                        [100.0 + s, 100.0 + s, 1.0, 1.0],
-                        [200.0 + s, 100.0 + s, 1.0, 1.0],
-                        [100.0 + s, 200.0 + s, 1.0, 1.0],
-                    ],
-                    uv: [[0.0, 0.0], [1.0, 0.0], [1.0, 0.0]],
-                })
-                .unwrap(),
-            ),
+            tri
         );
         let len = 1;
         */
@@ -160,9 +166,14 @@ fn main() {
         for i in 0..640 * 480 / 16 {
             hw.write(render_fb + i * 4 * 16, [0x66666666u32; 16]);
         }
+        for i in 0..256 * 1024 * 32 / 64 {
+            hw.write(DEPTHBUFFER + i * 64, [0u32; 16]);
+        }
+        hw.set_reg(R_CONTROL, 4);
+
         hw.set_reg(R_RENDER_TARGET, render_fb);
-        hw.set_reg(R_START, 1 | len << 16);
-        hw.set_reg(R_START, 2);
+        hw.set_reg(R_CONTROL, 1 | len << 16);
+        hw.set_reg(R_CONTROL, 2);
         while hw.get_reg(R_STATUS) & 4 == 0 {}
         hw.set_reg(R_STATUS, 4);
 
