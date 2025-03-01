@@ -23,7 +23,8 @@ interface TopLevel;
     (* always_ready, always_enabled, prefix="" *) method Action hdmi_int(Bool hdmi_int);
     interface ExtI2C ext_i2c;
     (*prefix="video"*) interface Ext_Video ext_video;
-    interface AXI3_Master_IFC #(32, 32, 8) fpga_to_hps;
+    interface AXI3_Master_IFC #(32, 128, 8) sdram0;
+    interface AXI3_Master_IFC #(32, 128, 8) sdram1;
 endinterface
 
 interface TopLevelWithAxiSlave;
@@ -31,32 +32,47 @@ interface TopLevelWithAxiSlave;
     interface AXI3_Slave_IFC #(32, 32, 12) hps_to_fpga_lw;
 endinterface
 
+(* synthesize *)
+module mkDMA0(DMA #(1, 1));
+    let m <- mkDMA;
+    return m;
+endmodule
+
+(* synthesize *)
+module mkDMA1(DMA #(1, 0));
+    let m <- mkDMA;
+    return m;
+endmodule
+
 module [ModWithConfig] mkInternals(TopLevel);
     HdmiCtrl hdmi_ctrl <- mkHdmiCtrl;
     Video video <- mkVideo;
-    DMA #(2, 1) dma <- mkDMA;
+    let dma0 <- mkDMA0;
+    let dma1 <- mkDMA1;
     Starter starter <- mkStarter;
     CoarseRaster coarse_raster <- mkCoarseRaster;
     FineRaster fine_raster <- mkFineRaster;
     PixelOut pixel_out <- mkPixelOut;
 
-    mkConnection(video.dma_req, dma.rd_req[0]);
-    mkConnection(dma.rd_data[0], video.dma_resp);
+    mkConnection(video.dma_req, dma1.rd_req[0]);
+    mkConnection(dma1.rd_data[0], video.dma_resp);
 
-    mkConnection(starter.dma_req, dma.rd_req[1]);
-    mkConnection(starter.dma_resp, dma.rd_data[1]);
+    mkConnection(starter.dma_req, dma0.rd_req[0]);
+    mkConnection(starter.dma_resp, dma0.rd_data[0]);
     mkConnection(starter.out, coarse_raster.in);
 
     mkConnection(coarse_raster.out, fine_raster.in);
     mkConnection(fine_raster.out, pixel_out.in);
 
-    mkConnection(pixel_out.dma_req, dma.wr_req[0]);
-    mkConnection(pixel_out.dma_data, dma.wr_data[0]);
-    mkConnection(pixel_out.dma_resp, dma.wr_resp[0]);
+    mkConnection(pixel_out.dma_req, dma0.wr_req[0]);
+    mkConnection(pixel_out.dma_data, dma0.wr_data[0]);
+    mkConnection(pixel_out.dma_resp, dma0.wr_resp[0]);
 
     interface ExtI2C ext_i2c = hdmi_ctrl.ext_i2c;
     interface Video ext_video = video.ext;
-    interface AXI3_Master_IFC fpga_to_hps = dma.mem_ifc;
+    //interface AXI3_Master_IFC fpga_to_hps = dma.mem_ifc;
+    interface AXI3_Master_IFC sdram0 = dma0.mem_ifc;
+    interface AXI3_Master_IFC sdram1 = dma1.mem_ifc;
     method hdmi_int = hdmi_ctrl.hdmi_int;
 
     method Bit #(8) led;

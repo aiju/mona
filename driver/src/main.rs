@@ -3,7 +3,7 @@
 use rs_common::*;
 use std::{
     fs::{File, OpenOptions},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::OpenOptionsExt, 
 };
 
 const MEM_START: u32 = 0x10000000;
@@ -121,11 +121,11 @@ fn main() {
     loop {
         let matrix = matmul(&[
             projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-            translate(0.0, 0.0, 3.0),
-            //rotate(-20.0, [1.0, 0.0, 0.0]),
+            translate(0.0, -1.0, 3.0),
+            rotate(-20.0, [1.0, 0.0, 0.0]),
             rotate(30.0 * t, [0.0, 1.0, 0.0]),
         ]);
-        let primitives: Vec<_> = CUBE.iter().map(|v| BarePrimitive::new(*v)).collect();
+        let primitives: Vec<_> = include!("../../model/src/model.rs").iter().map(|v| BarePrimitive::new(*v)).collect();
 
         let mut len = 0;
         for p in primitives
@@ -137,6 +137,25 @@ fn main() {
             hw.write(MEM_START + 2 * 1048576 + 68 * len, t);
             len += 1;
         }
+
+        /* 
+        let s = 10.0 * t % 100.0;
+        hw.write(
+            MEM_START + 2 * 1048576,
+            Triangle::new(
+                &CoarseRasterIn::new(&BarePrimitive {
+                    vertices: [
+                        [100.0 + s, 100.0 + s, 1.0, 1.0],
+                        [200.0 + s, 100.0 + s, 1.0, 1.0],
+                        [100.0 + s, 200.0 + s, 1.0, 1.0],
+                    ],
+                    uv: [[0.0, 0.0], [1.0, 0.0], [1.0, 0.0]],
+                })
+                .unwrap(),
+            ),
+        );
+        let len = 1;
+        */
 
         for i in 0..640 * 480 / 16 {
             hw.write(render_fb + i * 4 * 16, [0x66666666u32; 16]);
