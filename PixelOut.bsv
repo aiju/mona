@@ -9,68 +9,96 @@ package PixelOut;
     import CoarseRaster :: *;
     import CBus :: *;
     import ConfigDefs :: *;
+    import SpecialFIFOs :: *;
+    import Util :: *;
 
     interface PixelOut;
-        interface FIFOF_I #(FineRasterOut) in;
+        interface FIFOF_I #(UVInterpOut) in;
         interface FIFOF_O #(DMA_Req) dma_req;
         interface FIFOF_O #(Bit #(32)) dma_data;
         interface FIFOF_I #(Bool) dma_resp;
     endinterface
 
     module [ModWithConfig] mkPixelOut(PixelOut);
-        FIFOF #(FineRasterOut) f_in <- mkFIFOF;
-        FIFOF #(DMA_Req) f_req <- mkFIFOF;
-        FIFOF #(Bit #(32)) f_data <- mkFIFOF;
+        let ifc <- collectCBusIFC(mkPixelOutExposed);
+        return ifc;
+    endmodule
 
-        Reg #(Bool) active <- mkReg (False);
-        Reg #(Bit #(4)) ctr <- mkRegU;
-        Reg #(FineRasterOut) data <- mkRegU;
+    (* synthesize *)
+    module mkPixelOutExposed(IWithCBus#(ConfigBus, PixelOut));
+        let ifc <- exposeCBusIFC(mkPixelOutInternal);
+        return ifc;
+    endmodule
+
+    module [ModWithConfig] mkPixelOutInternal(PixelOut);
+        FIFOF #(UVInterpOut) f_in <- mkPipelineFIFOF;
+        FIFOF #(DMA_Req) f_req <- mkBypassFIFOF;
+        FIFOF #(Bit #(32)) f_data <- mkBypassFIFOF;
+
+        Reg #(Bit #(10)) outstanding[2] <- mkCReg (2, 0);
 
         Reg #(Bit #(32)) framebuffer <- mkCBRegRW(cfg_render_target, 32'h1000_0000);
-
         Reg #(Bool) flushed <- mkCBRegRC(cfg_status_flushed, False);
 
-        UVInterp uv_interp <- mkUVInterp;
+        Reg #(Bool) issue_clear <- mkCBRegRW(cfg_control_clear, False);
+        Reg #(Bit #(32)) clear_start_addr <- mkCBRegRW(cfg_clear_addr, 32'h1000_0000);
+        Reg #(Bit #(32)) clear_data <- mkCBRegRW(cfg_clear_data, 32'h0000_0000);
+        Reg #(Bit #(16)) clear_stride <- mkCBRegRW(cfg_clear_stride, 16'h0000);
+        Reg #(Bit #(16)) clear_width <- mkCBRegRW(cfg_clear_width, 16'h0000);
+        Reg #(Bit #(16)) clear_height <- mkCBRegRW(cfg_clear_height, 16'h0000);
+        Reg #(Bool) clear_busy <- mkCBRegR (cfg_status_clear_busy, False);
 
-        rule rl_start (!active);
-            case(f_in.first) matches
+        Reg #(Bit #(32)) clear_addr <- mkRegU;
+        Reg #(Bit #(16)) clear_x <- mkRegU;
+        Reg #(Bit #(16)) clear_y <- mkRegU;
+
+        rule rl_clear_start (issue_clear && !clear_busy);
+            if(clear_width != 0 && clear_height != 0) begin
+                clear_busy <= True;
+                clear_addr <= clear_start_addr;
+                clear_x <= clear_width;
+                clear_y <= clear_height;
+            end
+            issue_clear <= False;
+        endrule
+
+        rule rl_clearing (clear_busy && outstanding[0] != ~0);
+            if(clear_y != 0) begin
+                if(clear_x == clear_width) begin
+                    f_req.enq(DMA_Req {
+                        addr: clear_addr,
+                        len: extend(clear_width) * 4
+                    });
+                    clear_addr <= clear_addr + extend(clear_stride) * 4;
+                    outstanding[0] <= outstanding[0] + 1;
+                end
+                f_data.enq(clear_data);
+                if(clear_x == 1) begin
+                    clear_y <= clear_y - 1;
+                    clear_x <= clear_width;
+                end else
+                    clear_x <= clear_x - 1;
+            end else begin
+                if(outstanding[0] == 0)
+                    clear_busy <= False;
+            end
+        endrule
+
+        rule rl_process (!clear_busy && outstanding[0] != ~0);
+            let data <- pop(f_in);
+            case(data) matches
                 tagged Flush : flushed <= True;
-                tagged Tile .p : begin
-                    active <= True;
-                    data <= f_in.first;
-                    ctr <= 0;
+                tagged Pixel .pixel : begin
+                    f_req.enq(DMA_Req {
+                        addr: framebuffer
+                            + 640 * 4 * extend(pack(pixel.y))
+                            + 4 * extend(pack(pixel.x)),
+                        len: 4
+                    });
+                    f_data.enq({16'b0, pack(pixel.u)[25:18], pack(pixel.v)[25:18]});
+                    outstanding[0] <= outstanding[0] + 1;
                 end
             endcase
-            f_in.deq;
-        endrule
-
-        rule rl_process (active);
-            if(data.Tile.pixels[ctr] != 1'b0) begin
-                f_req.enq(DMA_Req {
-                    addr: framebuffer
-                        + 640 * 4 * extend({pack(data.Tile.ty), ctr[3:2]})
-                        + 4 * extend({pack(data.Tile.tx), ctr[1:0]}),
-                    len: 4
-                });
-                Vector #(3, Int #(27)) edge_vec = newVector;
-                for(Integer i = 0; i < 3; i = i + 1)
-                    edge_vec[i] = data.Tile.edge_fns[i].a
-                        + data.Tile.edge_fns[i].x * zeroExtend(unpack(ctr[1:0]))
-                        + data.Tile.edge_fns[i].y * zeroExtend(unpack(ctr[3:2]));
-                uv_interp.in.enq(UVInterpIn {
-                    edge_vec: edge_vec,
-                    uv: data.Tile.uv
-                });
-            end
-            if(ctr == 15)
-                active <= False;
-            else
-                ctr <= ctr + 1;
-        endrule
-
-        rule rl_data;
-            let d <- pop_o(uv_interp.out);
-            f_data.enq({16'b0, pack(d.u)[25:18], pack(d.v)[25:18]});
         endrule
 
         interface in = to_FIFOF_I(f_in);
@@ -78,7 +106,9 @@ package PixelOut;
         interface dma_data = to_FIFOF_O(f_data);
         interface dma_resp = interface FIFOF_I;
             method notFull = True;
-            method enq(x) = noAction;
+            method Action enq(x);
+                outstanding[1] <= outstanding[1] - 1;
+            endmethod
         endinterface;
     endmodule
 

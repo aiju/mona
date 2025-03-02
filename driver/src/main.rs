@@ -16,6 +16,15 @@ const R_CONTROL: u32 = 0x004;
 const R_DISPLAY_FB: u32 = 0x008;
 const R_RENDER_TARGET: u32 = 0x00C;
 
+const B_STATUS_CLEAR_BUSY: u32 = 8;
+const B_CONTROL_CLEAR: u32 = 8;
+
+const R_DEPTH_MODE: u32 = 0x014;
+const R_CLEAR_ADDR: u32 = 0x018;
+const R_CLEAR_STRIDE: u32 = 0x01C;
+const R_CLEAR_WIDTH_HEIGHT: u32 = 0x020;
+const R_CLEAR_DATA: u32 = 0x024;
+
 const FRAMEBUFFER1: u32 = MEM_START;
 const FRAMEBUFFER2: u32 = MEM_START + 4 * 1048576;
 
@@ -80,6 +89,14 @@ impl Hw {
             ptr.write_volatile(value);
         }
     }
+    fn clear(&mut self, addr: u32, stride: u16, width: u16, height: u16, value: u32) {
+        self.set_reg(R_CLEAR_ADDR, addr);
+        self.set_reg(R_CLEAR_STRIDE, stride.into());
+        self.set_reg(R_CLEAR_WIDTH_HEIGHT, width as u32 | (height as u32) << 16);
+        self.set_reg(R_CLEAR_DATA, value);
+        self.set_reg(R_CONTROL, B_CONTROL_CLEAR);
+        while self.get_reg(R_STATUS) & B_STATUS_CLEAR_BUSY != 0 {}
+    }
 }
 
 #[repr(C)]
@@ -143,32 +160,9 @@ fn main() {
             len += 1;
         }
 
-        /*
-        let s = 10.0 * t % 100.0;
-        let tri = Triangle::new(
-            &CoarseRasterIn::new(&BarePrimitive {
-                vertices: [
-                    [100.0 + s, 100.0 + s, 1.0, 1.0],
-                    [200.0 + s, 100.0 + s, 1.0, 1.0],
-                    [100.0 + s, 200.0 + s, 1.0, 1.0],
-                ],
-                uv: [[0.0, 0.0], [1.0, 0.0], [1.0, 0.0]],
-            })
-            .unwrap());
-        println!("{tri:?}");
-        hw.write(
-            MEM_START + 2 * 1048576,
-            tri
-        );
-        let len = 1;
-        */
-
-        for i in 0..640 * 480 / 16 {
-            hw.write(render_fb + i * 4 * 16, [0x66666666u32; 16]);
-        }
-        for i in 0..256 * 1024 * 32 / 64 {
-            hw.write(DEPTHBUFFER + i * 64, [0u32; 16]);
-        }
+        hw.clear(render_fb, 640, 640, 480, 0x66666666u32);
+        hw.clear(DEPTHBUFFER, 2048, 2048, 256, 0);
+        
         hw.set_reg(R_CONTROL, 4);
 
         hw.set_reg(R_RENDER_TARGET, render_fb);
@@ -177,7 +171,7 @@ fn main() {
         while hw.get_reg(R_STATUS) & 4 == 0 {}
         hw.set_reg(R_STATUS, 4);
 
-        while hw.get_reg(R_STATUS) & 1 == 0 || hw.get_reg(R_STATUS) & 2 != 0 {}
+        while hw.get_reg(R_STATUS) & 1 == 0 || hw.get_reg(R_STATUS) & 2 == 0 {}
         hw.set_reg(R_STATUS, 1);
         std::mem::swap(&mut render_fb, &mut display_fb);
         hw.set_reg(R_DISPLAY_FB, display_fb);

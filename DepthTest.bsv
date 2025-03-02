@@ -61,6 +61,7 @@ package DepthTest;
         let f_wr_resp <- mkFIFOF;
 
         Reg #(Bit #(32)) depth_buffer <- mkCBRegRW(cfg_depth_buffer, 32'h1080_0000);
+        Reg #(DepthMode) depth_mode <- mkCBRegRW(cfg_depth_mode, DEPTH_MODE_GT);
 
         RegFile #(CacheAddr, Tag) tag0 <- mkRegFileFull;
         RegFile #(CacheAddr, Tag) tag1 <- mkRegFileFull;
@@ -191,11 +192,26 @@ package DepthTest;
             endcase
         endfunction
 
+        function Bool depth_test(Int #(16) frag, Int #(16) buffer);
+            let lt = frag < buffer;
+            let eq = frag == buffer;
+            case(depth_mode)
+                DEPTH_MODE_ALWAYS: return True;
+                DEPTH_MODE_NEVER: return False;
+                DEPTH_MODE_LT: return lt;
+                DEPTH_MODE_LE: return lt || eq;
+                DEPTH_MODE_GT: return !lt && !eq;
+                DEPTH_MODE_GE: return !lt;
+                DEPTH_MODE_EQ: return eq;
+                DEPTH_MODE_NE: return !eq;
+            endcase
+        endfunction
+
         function Tuple3 #(Line, Line, FineRasterOut) update_z(Line line0, Line line1, Cache_Req req);
             Bit #(16) pixels = get_pixels(req);
             Vector #(16, Int #(16)) z_vec = unpack({line1, line0});
             for(Integer i = 0; i < 16; i = i + 1) begin
-                if(pixels[i] != 0 && z_vec[i] < req.z[i])
+                if(pixels[i] != 0 && depth_test(req.z[i], z_vec[i]))
                     z_vec[i] = req.z[i];
                 else
                     pixels[i] = 0;

@@ -46,15 +46,19 @@ package Video;
         endrule
 
         rule rl_inc_y (div && x == 640 + 16 + 96 + 48 - 1 && y < 480 + 10 + 2 + 33 - 1);
-            if(y == 479) begin
-                seen_vsync <= True;
-                in_vsync <= True;
-            end
-            if(y == 0) begin
-                in_vsync <= False;
-            end
             x <= 0;
             y <= y + 1;
+        endrule
+
+        rule rl_update_seen_vsync (div && x == 640 + 16 + 96 + 48 - 1 && y == 479);
+            seen_vsync <= True;
+        endrule
+
+        rule rl_update_in_vsync (div && x == 640 + 16 + 96 + 48 - 1);
+            if(y == 479)
+                in_vsync <= True;
+            if(y == 480 + 10 + 2 + 33 - 2)
+                in_vsync <= False;
         endrule
 
         rule rl_reset (div && x == 640 + 16 + 96 + 48 - 1 && y == 480 + 10 + 2 + 33 - 1);
@@ -62,12 +66,17 @@ package Video;
             y <= 0;
         endrule
 
-        rule rl_issue (div && x == 640 && (y < 479 || y == 480 + 10 + 2 + 33 - 1));
-            f_dma_req.enq(DMA_Req {addr: addr_ctr, len: 640 * 4});
-            if(y != 478)
-                addr_ctr <= addr_ctr + 640 * 4;
-            else
-                addr_ctr <= framebuffer;
+        Reg #(Bool) issue <- mkReg (False);
+
+        rule rl_issue (div && x == 640 && (y < 479 || y == 480 + 10 + 2 + 33 - 1) && !issue);
+            issue <= True;
+        endrule
+
+        rule rl_issue_go (issue);
+            let new_addr = y < 479 ? addr_ctr + 640 * 4 : framebuffer;
+            f_dma_req.enq(DMA_Req {addr: new_addr, len: 640 * 4});
+            addr_ctr <= new_addr;
+            issue <= False;
         endrule
 
         rule rl_pop (div && x < 640 && y < 480 || (y >= 480 && y < 480 + 10 + 2 + 33 - 1));

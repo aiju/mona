@@ -18,6 +18,8 @@ package TopLevel;
     import FIFOF::*;
     import Util :: *;
     import DepthTest :: *;
+    import PixelSplit :: *;
+    import UVInterp :: *;
 
 interface TopLevel;
     (* always_ready *) method Bit #(8) led;
@@ -53,8 +55,10 @@ module [ModWithConfig] mkInternals(TopLevel);
     Starter starter <- mkStarter;
     CoarseRaster coarse_raster <- mkCoarseRaster;
     FineRaster fine_raster <- mkFineRaster;
-    PixelOut pixel_out <- mkPixelOut;
     DepthTest depth_test <- mkDepthTest;
+    PixelSplit pixel_split <- mkPixelSplit;
+    UVInterp uv_interp <- mkUVInterp;
+    PixelOut pixel_out <- mkPixelOut;
 
     mkConnection(video.dma_req, dma1.rd_req[0]);
     mkConnection(dma1.rd_data[0], video.dma_resp);
@@ -65,7 +69,9 @@ module [ModWithConfig] mkInternals(TopLevel);
 
     mkConnection(coarse_raster.out, fine_raster.in);
     mkConnection(fine_raster.out, depth_test.in);
-    mkConnection(depth_test.out, pixel_out.in);
+    mkConnection(depth_test.out, pixel_split.in);
+    mkConnection(pixel_split.out, uv_interp.in);
+    mkConnection(uv_interp.out, pixel_out.in);
 
     mkConnection(depth_test.rd_req, dma0.rd_req[1]);
     mkConnection(depth_test.wr_req, dma0.wr_req[1]);

@@ -155,7 +155,7 @@ package AxiToSimple;
             ConfigBus cbus)
             (Empty);
 
-            rule rl_process;
+            rule rl_simple_to_cbus;
                 let req <- simple.request.get();
                 if(req.wr) begin
                     cbus.write(truncate(req.addr), req.wdata);
