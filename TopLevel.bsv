@@ -21,6 +21,7 @@ package TopLevel;
     import PixelSplit :: *;
     import UVInterp :: *;
     import Clear :: *;
+    import Texture :: *;
 
 interface TopLevel;
     (* always_ready *) method Bit #(8) led;
@@ -37,21 +38,25 @@ interface TopLevelWithAxiSlave;
 endinterface
 
 module [ModWithConfig] mkInternals(TopLevel);
-    Fabric #(2, 3) fabric0 <- mkFabric;
+    Fabric #(3, 3) fabric0 <- mkFabric;
     Fabric #(1, 0) fabric1 <- mkFabric;
 
     DMARdChannel #(32) dma_video <- mkDMARdChannel;
     DMARdChannel #(32) dma_starter <- mkDMARdChannel;
     DMARdChannel #(128) dma_depth_rd <- mkDMARdChannel;
     DMAWrChannel #(128) dma_depth_wr <- mkDMAWrChannel;
+    DMARdChannel #(32) dma_texture <- mkDMARdChannel;
     DMAWrChannel #(32) dma_pixel_out <- mkDMAWrChannel;
     DMAWrChannel #(128) dma_clear <- mkDMAWrChannel;
 
     mkConnection(dma_starter.axi, fabric0.rd[0]);
     mkConnection(dma_depth_rd.axi, fabric0.rd[1]);
+    mkConnection(dma_texture.axi, fabric0.rd[2]);
+
     mkConnection(dma_depth_wr.axi, fabric0.wr[0]);
     mkConnection(dma_pixel_out.axi, fabric0.wr[1]);
     mkConnection(dma_clear.axi, fabric0.wr[2]);
+
     mkConnection(dma_video.axi, fabric1.rd[0]);
 
     HdmiCtrl hdmi_ctrl <- mkHdmiCtrl;
@@ -64,6 +69,7 @@ module [ModWithConfig] mkInternals(TopLevel);
     DepthTest depth_test <- mkDepthTest;
     PixelSplit pixel_split <- mkPixelSplit;
     UVInterp uv_interp <- mkUVInterp;
+    Texture texture <- mkTexture;
     PixelOut pixel_out <- mkPixelOut;
 
     mkConnection(video.dma_req, dma_video.req);
@@ -77,11 +83,15 @@ module [ModWithConfig] mkInternals(TopLevel);
     mkConnection(starter.dma_resp, dma_starter.data);
     mkConnection(starter.out, coarse_raster.in);
 
+    mkConnection(texture.dma_req, dma_texture.req);
+    mkConnection(texture.dma_data, dma_texture.data);
+
     mkConnection(coarse_raster.out, fine_raster.in);
     mkConnection(fine_raster.out, depth_test.in);
     mkConnection(depth_test.out, pixel_split.in);
     mkConnection(pixel_split.out, uv_interp.in);
-    mkConnection(uv_interp.out, pixel_out.in);
+    mkConnection(uv_interp.out, texture.in);
+    mkConnection(texture.out, pixel_out.in);
 
     mkConnection(depth_test.rd_req, dma_depth_rd.req);
     mkConnection(depth_test.rd_data, dma_depth_rd.data);

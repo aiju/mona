@@ -48,5 +48,8 @@ package ConfigDefs;
     CAddr cfg_clear_height = CAddr { a : 12'h020, o: 16 }; // 16 bits
     CAddr cfg_clear_data = full(12'h024);
 
+    CAddr cfg_texture_en = CAddr {a: 12'h028, o: 0};
+    CAddr cfg_texture_addr = full(12'h02C);
+
 
 endpackage

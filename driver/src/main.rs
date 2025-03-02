@@ -3,7 +3,9 @@
 use rs_common::*;
 use std::{
     fs::{File, OpenOptions},
-    os::unix::fs::OpenOptionsExt, time, 
+    io::Read,
+    os::unix::fs::OpenOptionsExt,
+    time,
 };
 
 const MEM_START: u32 = 0x10000000;
@@ -25,8 +27,12 @@ const R_CLEAR_STRIDE: u32 = 0x01C;
 const R_CLEAR_WIDTH_HEIGHT: u32 = 0x020;
 const R_CLEAR_DATA: u32 = 0x024;
 
+const R_TEXTURE_EN: u32 = 0x028;
+const R_TEXTURE_ADDR: u32 = 0x02C;
+
 const FRAMEBUFFER1: u32 = MEM_START;
 const FRAMEBUFFER2: u32 = MEM_START + 4 * 1048576;
+const TEXTUREBUFFER: u32 = MEM_START + 6 * 1048576;
 
 const DEPTHBUFFER: u32 = MEM_START + 8 * 1048576;
 
@@ -75,6 +81,11 @@ impl Hw {
             ptr.write_volatile(value);
         }
     }
+    fn mem_mut(&mut self, addr: u32, len: u32) -> &mut [u8] {
+        assert!(addr >= MEM_START);
+        assert!(addr + len <= MEM_START + MEM_LEN);
+        &mut self.mem[(addr - MEM_START) as usize..(addr + len - MEM_START) as usize]
+    }
     fn get_reg(&mut self, addr: u32) -> u32 {
         assert!(addr < REG_LEN && (addr & 3) == 0);
         unsafe {
@@ -93,7 +104,10 @@ impl Hw {
         assert!(addr % 64 == 0 && stride % 4 == 0 && width % 4 == 0);
         self.set_reg(R_CLEAR_ADDR, addr);
         self.set_reg(R_CLEAR_STRIDE, stride as u32 / 4);
-        self.set_reg(R_CLEAR_WIDTH_HEIGHT, width as u32 / 4 | (height as u32) << 16);
+        self.set_reg(
+            R_CLEAR_WIDTH_HEIGHT,
+            width as u32 / 4 | (height as u32) << 16,
+        );
         self.set_reg(R_CLEAR_DATA, value);
         self.set_reg(R_CONTROL, B_CONTROL_CLEAR);
         while self.get_reg(R_STATUS) & B_STATUS_CLEAR_BUSY != 0 {}
@@ -119,7 +133,7 @@ impl Triangle {
                 edge_vec[i][j] = (c.edge_mat[j][i] * (1 << 20) as f64) as i32;
             }
         }
-        let uv = c.uv.map(|row| row.map(|n| (n * (1 << 25) as f64) as i32));
+        let uv = c.uv.map(|row| row.map(|n| (n * (1 << 26) as f64) as i32));
         Triangle {
             edge_vec,
             uv,
@@ -137,6 +151,14 @@ fn main() {
     let (mut render_fb, mut display_fb) = (FRAMEBUFFER1, FRAMEBUFFER2);
 
     let mut t = 0.0;
+
+    File::open("texture.raw")
+        .unwrap()
+        .read_exact(hw.mem_mut(TEXTUREBUFFER, 512 * 512 * 4))
+        .unwrap();
+
+    hw.set_reg(R_TEXTURE_ADDR, TEXTUREBUFFER);
+    hw.set_reg(R_TEXTURE_EN, 1);
 
     loop {
         let matrix = matmul(&[

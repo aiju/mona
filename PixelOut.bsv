@@ -11,9 +11,10 @@ package PixelOut;
     import ConfigDefs :: *;
     import SpecialFIFOs :: *;
     import Util :: *;
+    import Texture :: *;
 
     interface PixelOut;
-        interface FIFOF_I #(UVInterpOut) in;
+        interface FIFOF_I #(TextureOut) in;
         interface FIFOF_O #(DMA_Req) dma_req;
         interface FIFOF_O #(Bit #(32)) dma_data;
         interface FIFOF_I #(Bool) dma_resp;
@@ -31,7 +32,7 @@ package PixelOut;
     endmodule
 
     module [ModWithConfig] mkPixelOutInternal(PixelOut);
-        FIFOF #(UVInterpOut) f_in <- mkPipelineFIFOF;
+        FIFOF #(TextureOut) f_in <- mkPipelineFIFOF;
         FIFOF #(DMA_Req) f_req <- mkBypassFIFOF;
         FIFOF #(Bit #(32)) f_data <- mkBypassFIFOF;
 
@@ -49,7 +50,7 @@ package PixelOut;
                             + 4 * extend(pack(pixel.x)),
                         len: 4
                     });
-                    f_data.enq({16'b0, pack(pixel.u)[25:18], pack(pixel.v)[25:18]});
+                    f_data.enq(pixel.rgba);
                 end
             endcase
         endrule
