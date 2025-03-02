@@ -10,6 +10,7 @@ package DepthTest;
     import Vector :: *;
     import CoarseRaster :: *;
     import CBus :: *;
+    import SpecialFIFOs::*;
 
     typedef 128 WdLineSize;
     typedef 8 WdCacheAddr;
@@ -261,6 +262,17 @@ package DepthTest;
         interface wr_req = to_FIFOF_O(f_wr_req);
         interface wr_data = to_FIFOF_O(f_wr_data);
         interface wr_resp = to_FIFOF_I(f_wr_resp);
+    endmodule
+
+    module mkDummyDepthTest(DepthTest);
+        FIFOF #(FineRasterOut) data <- mkPipelineFIFOF;
+        interface in = to_FIFOF_I(data);
+        interface out = to_FIFOF_O(data);
+        interface rd_req = dummy_FIFOF_O;
+        interface rd_data = dummy_FIFOF_I;
+        interface wr_req = dummy_FIFOF_O;
+        interface wr_data = dummy_FIFOF_O;
+        interface wr_resp = dummy_FIFOF_I;
     endmodule
 
 endpackage

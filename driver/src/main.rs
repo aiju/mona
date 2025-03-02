@@ -3,7 +3,7 @@
 use rs_common::*;
 use std::{
     fs::{File, OpenOptions},
-    os::unix::fs::OpenOptionsExt, 
+    os::unix::fs::OpenOptionsExt, time, 
 };
 
 const MEM_START: u32 = 0x10000000;
@@ -90,9 +90,10 @@ impl Hw {
         }
     }
     fn clear(&mut self, addr: u32, stride: u16, width: u16, height: u16, value: u32) {
+        assert!(addr % 64 == 0 && stride % 4 == 0 && width % 4 == 0);
         self.set_reg(R_CLEAR_ADDR, addr);
-        self.set_reg(R_CLEAR_STRIDE, stride.into());
-        self.set_reg(R_CLEAR_WIDTH_HEIGHT, width as u32 | (height as u32) << 16);
+        self.set_reg(R_CLEAR_STRIDE, stride as u32 / 4);
+        self.set_reg(R_CLEAR_WIDTH_HEIGHT, width as u32 / 4 | (height as u32) << 16);
         self.set_reg(R_CLEAR_DATA, value);
         self.set_reg(R_CONTROL, B_CONTROL_CLEAR);
         while self.get_reg(R_STATUS) & B_STATUS_CLEAR_BUSY != 0 {}
@@ -162,7 +163,6 @@ fn main() {
 
         hw.clear(render_fb, 640, 640, 480, 0x66666666u32);
         hw.clear(DEPTHBUFFER, 2048, 2048, 256, 0);
-        
         hw.set_reg(R_CONTROL, 4);
 
         hw.set_reg(R_RENDER_TARGET, render_fb);

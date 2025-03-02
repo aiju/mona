@@ -20,6 +20,7 @@ package TopLevel;
     import DepthTest :: *;
     import PixelSplit :: *;
     import UVInterp :: *;
+    import Clear :: *;
 
 interface TopLevel;
     (* always_ready *) method Bit #(8) led;
@@ -35,23 +36,28 @@ interface TopLevelWithAxiSlave;
     interface AXI3_Slave_IFC #(32, 32, 12) hps_to_fpga_lw;
 endinterface
 
-(* synthesize *)
-module mkDMA0(DMA #(2, 2));
-    let m <- mkDMA;
-    return m;
-endmodule
-
-(* synthesize *)
-module mkDMA1(DMA #(1, 0));
-    let m <- mkDMA;
-    return m;
-endmodule
-
 module [ModWithConfig] mkInternals(TopLevel);
+    Fabric #(2, 3) fabric0 <- mkFabric;
+    Fabric #(1, 0) fabric1 <- mkFabric;
+
+    DMARdChannel #(32) dma_video <- mkDMARdChannel;
+    DMARdChannel #(32) dma_starter <- mkDMARdChannel;
+    DMARdChannel #(128) dma_depth_rd <- mkDMARdChannel;
+    DMAWrChannel #(128) dma_depth_wr <- mkDMAWrChannel;
+    DMAWrChannel #(32) dma_pixel_out <- mkDMAWrChannel;
+    DMAWrChannel #(128) dma_clear <- mkDMAWrChannel;
+
+    mkConnection(dma_starter.axi, fabric0.rd[0]);
+    mkConnection(dma_depth_rd.axi, fabric0.rd[1]);
+    mkConnection(dma_depth_wr.axi, fabric0.wr[0]);
+    mkConnection(dma_pixel_out.axi, fabric0.wr[1]);
+    mkConnection(dma_clear.axi, fabric0.wr[2]);
+    mkConnection(dma_video.axi, fabric1.rd[0]);
+
     HdmiCtrl hdmi_ctrl <- mkHdmiCtrl;
     Video video <- mkVideo;
-    let dma0 <- mkDMA0;
-    let dma1 <- mkDMA1;
+    Clear clear <- mkClear;
+
     Starter starter <- mkStarter;
     CoarseRaster coarse_raster <- mkCoarseRaster;
     FineRaster fine_raster <- mkFineRaster;
@@ -60,11 +66,15 @@ module [ModWithConfig] mkInternals(TopLevel);
     UVInterp uv_interp <- mkUVInterp;
     PixelOut pixel_out <- mkPixelOut;
 
-    mkConnection(video.dma_req, dma1.rd_req[0]);
-    mkConnection(dma1.rd_data[0], video.dma_resp);
+    mkConnection(video.dma_req, dma_video.req);
+    mkConnection(video.dma_resp, dma_video.data);
 
-    mkConnection(starter.dma_req, dma0.rd_req[0]);
-    mkConnection(starter.dma_resp, dma0.rd_data[0]);
+    mkConnection(clear.dma_req, dma_clear.req);
+    mkConnection(clear.dma_data, dma_clear.data);
+    mkConnection(clear.dma_resp, dma_clear.resp);
+
+    mkConnection(starter.dma_req, dma_starter.req);
+    mkConnection(starter.dma_resp, dma_starter.data);
     mkConnection(starter.out, coarse_raster.in);
 
     mkConnection(coarse_raster.out, fine_raster.in);
@@ -73,41 +83,20 @@ module [ModWithConfig] mkInternals(TopLevel);
     mkConnection(pixel_split.out, uv_interp.in);
     mkConnection(uv_interp.out, pixel_out.in);
 
-    mkConnection(depth_test.rd_req, dma0.rd_req[1]);
-    mkConnection(depth_test.wr_req, dma0.wr_req[1]);
-    mkConnection(depth_test.wr_resp, dma0.wr_resp[1]);
+    mkConnection(depth_test.rd_req, dma_depth_rd.req);
+    mkConnection(depth_test.rd_data, dma_depth_rd.data);
+    mkConnection(depth_test.wr_req, dma_depth_wr.req);
+    mkConnection(depth_test.wr_data, dma_depth_wr.data);
+    mkConnection(depth_test.wr_resp, dma_depth_wr.resp);
 
-    Reg #(Bit #(128)) rdbuf <- mkRegU;
-    mkAutoFSM(seq
-        while(True) seq
-            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
-            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
-            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
-            action let v <- pop_o(dma0.rd_data[1]); rdbuf <= rdbuf << 32 | zeroExtend(v); endaction
-            depth_test.rd_data.enq(rdbuf);
-        endseq
-    endseq);
-    Reg #(Bit #(128)) wrbuf <- mkRegU;
-    mkAutoFSM(seq
-        while(True) seq
-            action let v <- pop_o(depth_test.wr_data); wrbuf <= v; endaction
-            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
-            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
-            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
-            action dma0.wr_data[1].enq(truncate(wrbuf)); wrbuf <= wrbuf >> 32; endaction
-        endseq
-    endseq);
-
-
-    mkConnection(pixel_out.dma_req, dma0.wr_req[0]);
-    mkConnection(pixel_out.dma_data, dma0.wr_data[0]);
-    mkConnection(pixel_out.dma_resp, dma0.wr_resp[0]);
+    mkConnection(pixel_out.dma_req, dma_pixel_out.req);
+    mkConnection(pixel_out.dma_data, dma_pixel_out.data);
+    mkConnection(pixel_out.dma_resp, dma_pixel_out.resp);
 
     interface ExtI2C ext_i2c = hdmi_ctrl.ext_i2c;
     interface Video ext_video = video.ext;
-    //interface AXI3_Master_IFC fpga_to_hps = dma.mem_ifc;
-    interface AXI3_Master_IFC sdram0 = dma0.mem_ifc;
-    interface AXI3_Master_IFC sdram1 = dma1.mem_ifc;
+    interface AXI3_Master_IFC sdram0 = fabric0.mem_ifc;
+    interface AXI3_Master_IFC sdram1 = fabric1.mem_ifc;
     method hdmi_int = hdmi_ctrl.hdmi_int;
 
     method Bit #(8) led;

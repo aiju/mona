@@ -463,4 +463,48 @@ package AXI;
         endcase
     endfunction
 
+    interface AXI3_Wr_Master #(numeric type wd_addr, numeric type wd_data, numeric type wd_id);
+        interface FIFOF_O #(AXI3_Wr_Addr #(wd_addr, wd_id)) wr_addr;
+        interface FIFOF_O #(AXI3_Wr_Data #(wd_data, wd_id)) wr_data;
+        interface FIFOF_I #(AXI3_Wr_Resp #(wd_id)) wr_resp;
+    endinterface
+    interface AXI3_Wr_Slave #(numeric type wd_addr, numeric type wd_data, numeric type wd_id);
+        interface FIFOF_I #(AXI3_Wr_Addr #(wd_addr, wd_id)) wr_addr;
+        interface FIFOF_I #(AXI3_Wr_Data #(wd_data, wd_id)) wr_data;
+        interface FIFOF_O #(AXI3_Wr_Resp #(wd_id)) wr_resp;
+    endinterface
+    interface AXI3_Rd_Master #(numeric type wd_addr, numeric type wd_data, numeric type wd_id);
+        interface FIFOF_O #(AXI3_Rd_Addr #(wd_addr, wd_id)) rd_addr;
+        interface FIFOF_I #(AXI3_Rd_Data #(wd_data, wd_id)) rd_data;
+    endinterface
+    interface AXI3_Rd_Slave #(numeric type wd_addr, numeric type wd_data, numeric type wd_id);
+        interface FIFOF_I #(AXI3_Rd_Addr #(wd_addr, wd_id)) rd_addr;
+        interface FIFOF_O #(AXI3_Rd_Data #(wd_data, wd_id)) rd_data;
+    endinterface
+
+    instance Connectable #(
+        AXI3_Wr_Master #(wd_addr, wd_data, wd_id),
+        AXI3_Wr_Slave  #(wd_addr, wd_data, wd_id));
+        module mkConnection #(
+            AXI3_Wr_Master #(wd_addr, wd_data, wd_id) axim,
+			AXI3_Wr_Slave  #(wd_addr, wd_data, wd_id) axis)
+            (Empty);
+            mkConnection(axim.wr_addr, axis.wr_addr);
+            mkConnection(axim.wr_data, axis.wr_data);
+            mkConnection(axim.wr_resp, axis.wr_resp);
+        endmodule
+    endinstance
+
+    instance Connectable #(
+        AXI3_Rd_Master #(wd_addr, wd_data, wd_id),
+        AXI3_Rd_Slave  #(wd_addr, wd_data, wd_id));
+        module mkConnection #(
+            AXI3_Rd_Master #(wd_addr, wd_data, wd_id) axim,
+			AXI3_Rd_Slave  #(wd_addr, wd_data, wd_id) axis)
+            (Empty);
+            mkConnection(axim.rd_addr, axis.rd_addr);
+            mkConnection(axim.rd_data, axis.rd_data);
+        endmodule
+    endinstance
+
 endpackage

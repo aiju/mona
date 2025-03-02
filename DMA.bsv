@@ -5,12 +5,11 @@ package DMA;
     import Semi_FIFOF::*;
     import Vector::*;
     import Util::*;
+    import SpecialFIFOs::*;
 
     typedef 32 WdAddr;
     typedef Bit #(32) Addr;
     typedef 128 WdAxiData;
-    typedef 32 WdRdData;
-    typedef 32 WdWrData;
     typedef 8 WdId;
     typedef 16 Burst;
 
@@ -31,19 +30,21 @@ package DMA;
     } Transfer_Info #(numeric type n)
     deriving (Bits, FShow);
 
-    interface DMARdChannel;
+    interface DMARdChannel #(numeric type wd_data);
         interface FIFOF_I #(DMA_Req) req;
-        interface FIFOF_O #(Bit #(WdRdData)) data;
-        method ActionValue #(AXI3_Rd_Addr #(WdAddr, WdId)) issue;
-        method Action put_data(Bit #(WdAxiData) data);
+        interface FIFOF_O #(Bit #(wd_data)) data;
+        interface AXI3_Rd_Master #(WdAddr, WdAxiData, WdId) axi;
     endinterface
 
-    module mkDMARdChannel(DMARdChannel);
+    module mkDMARdChannel(DMARdChannel #(wd_data))
+            provisos (Add#(a__, wd_data, WdAxiData), Add#(b__, TLog#(TDiv#(WdAxiData, wd_data)), 32));
         let resp_fifo_size = 4 * n_burst;
 
-        let f_req <- mkFIFOF;
+        let f_req <- mkPipelineFIFOF;
+        let f_rd_addr <- mkBypassFIFOF;
+
         FIFOF #(Bit #(WdAxiData)) f_data <- mkSizedFIFOF (resp_fifo_size);
-        FIFOF #(Transfer_Info #(WdRdData)) f_transfers <- mkSizedFIFOF (4);
+        FIFOF #(Transfer_Info #(wd_data)) f_transfers <- mkSizedFIFOF (4);
 
         Reg #(Bool) active <- mkReg (False);
         Reg #(Addr) addr_ctr <- mkRegU;
@@ -65,17 +66,17 @@ package DMA;
             addr_ctr <= first_addr;
             len_ctr <= len;
             f_transfers.enq(Transfer_Info {
-                first: truncate(req.addr / fromInteger(valueOf(WdRdData) / 8)),
-                last: truncate((req.addr + req.len - 1) / fromInteger(valueOf(WdRdData) / 8)),
+                first: truncate(req.addr / fromInteger(valueOf(wd_data) / 8)),
+                last: truncate((req.addr + req.len - 1) / fromInteger(valueOf(wd_data) / 8)),
                 len: len
             });
         endrule
 
         Reg #(Addr) beat_ctr <- mkReg (0);
-        Reg #(Bit #(TLog #(TDiv #(WdAxiData, WdRdData)))) word_ctr <- mkReg (0);
+        Reg #(Bit #(TLog #(TDiv #(WdAxiData, wd_data)))) word_ctr <- mkReg (0);
 
-        method ActionValue #(AXI3_Rd_Addr #(WdAddr, WdId)) issue if(active && credits[0] + burst_len <= fromInteger(resp_fifo_size));
-            let addr = AXI3_Rd_Addr {
+        rule rl_issue if(active && credits[0] + burst_len <= fromInteger(resp_fifo_size));
+            f_rd_addr.enq(AXI3_Rd_Addr {
                 araddr: addr_ctr,
                 arlen: truncate(burst_len - 1),
                 arprot: 3'b000,
@@ -84,7 +85,7 @@ package DMA;
                 arburst: 2'b01,
                 arsize: fromInteger(valueOf(TLog#(WdAxiData))),
                 arid: ?
-            };
+            });
             if (len_ctr <= fromInteger(n_burst)) begin
                 active <= False;
             end else begin
@@ -92,25 +93,28 @@ package DMA;
                 len_ctr <= len_ctr - fromInteger(n_burst);
             end
             credits[0] <= credits[0] + burst_len;
-            return addr;
-        endmethod
+        endrule
 
-        method Action put_data(Bit #(WdAxiData) data);
-            f_data.enq(data);
-        endmethod
+        interface axi = interface AXI3_Rd_Master;
+            interface rd_addr = to_FIFOF_O(f_rd_addr);
+            interface rd_data = interface FIFOF_I;
+                method notFull = f_data.notFull;
+                method Action enq(x) = f_data.enq(x.rdata);
+            endinterface;
+        endinterface;
 
         interface req = to_FIFOF_I(f_req);
         interface data = interface FIFOF_O;
-            method Bit #(WdRdData) first;
+            method Bit #(wd_data) first;
                 let data = f_data.first;
                 Bit #(32) offset = extend(word_ctr + (beat_ctr == 0 ? f_transfers.first.first : 0));
-                return truncate(data >> (offset * fromInteger(valueOf(WdRdData))));
+                return truncate(data >> (offset * fromInteger(valueOf(wd_data))));
             endmethod
             method Bool notEmpty = f_data.notEmpty;
             method Action deq;
                 let ctr = word_ctr + (beat_ctr == 0 ? f_transfers.first.first : 0);
                 let last_beat = beat_ctr == f_transfers.first.len - 1;
-                let last = last_beat ? f_transfers.first.last : -1;
+                let last = last_beat ? f_transfers.first.last : ~0;
                 if(ctr == last) begin
                     word_ctr <= 0;
                     if(last_beat) begin
@@ -126,23 +130,28 @@ package DMA;
         endinterface;
     endmodule
 
-    interface DMAWrChannel;
+    interface DMAWrChannel #(numeric type wd_data);
         interface FIFOF_I #(DMA_Req) req;
-        interface FIFOF_I #(Bit #(WdWrData)) data_in;
+        interface FIFOF_I #(Bit #(wd_data)) data;
         interface FIFOF_O #(Bool) resp;
-        method ActionValue #(AXI3_Wr_Addr #(WdAddr, WdId)) issue;
-        method Action response(AXI3_Wr_Resp #(WdId) r);
-        interface FIFOF_O #(AXI3_Wr_Data #(WdAxiData, 0)) data_out;
+        interface AXI3_Wr_Master #(WdAddr, WdAxiData, WdId) axi;
     endinterface
 
-    module mkDMAWrChannel(DMAWrChannel);
+    module mkDMAWrChannel(DMAWrChannel #(wd_data))
+            provisos (Add#(a__, wd_data, WdAxiData),
+                Add#(b__, TLog#(TDiv#(WdAxiData, wd_data)), 32),
+                Mul#(TDiv#(WdAxiData, wd_data), wd_data, WdAxiData),
+                Add#(c__, TLog#(TDiv#(128, wd_data)), 4));
         let data_fifo_size = 4 * n_burst;
 
-        let f_req <- mkFIFOF;
-        FIFOF #(AXI3_Wr_Data #(WdAxiData, 0)) f_data <- mkSizedFIFOF (data_fifo_size);
+        let f_req <- mkPipelineFIFOF;
+        FIFOF #(AXI3_Wr_Data #(WdAxiData, WdId)) f_data <- mkSizedFIFOF (data_fifo_size);
         FIFOF #(Bool) f_outstanding <- mkSizedFIFOF (4);
-        FIFOF #(Transfer_Info #(WdWrData)) f_transfers <- mkSizedFIFOF (4);
+        FIFOF #(Transfer_Info #(wd_data)) f_transfers <- mkSizedFIFOF (4);
         let f_resp <- mkFIFOF;
+
+        let f_wr_addr <- mkBypassFIFOF;
+        let f_wr_resp <- mkPipelineFIFOF;
 
         Reg #(Bool) active <- mkReg (False);
         Reg #(Addr) addr_ctr <- mkRegU;
@@ -166,18 +175,18 @@ package DMA;
             addr_ctr <= first_addr;
             len_ctr <= len;
             f_transfers.enq(Transfer_Info {
-                first: truncate(req.addr / fromInteger(valueOf(WdWrData) / 8)),
-                last: truncate((req.addr + req.len - 1) / fromInteger(valueOf(WdWrData) / 8)),
+                first: truncate(req.addr / fromInteger(valueOf(wd_data) / 8)),
+                last: truncate((req.addr + req.len - 1) / fromInteger(valueOf(wd_data) / 8)),
                 len: len
             });
         endrule
 
         Reg #(Addr) beat_ctr <- mkReg (0);
-        Reg #(Bit #(TLog #(TDiv #(WdAxiData, WdWrData)))) word_ctr <- mkReg (0);
-        Reg #(Vector #(TDiv #(WdAxiData, WdWrData), Bit #(WdWrData))) word_buf <- mkRegU;
+        Reg #(Bit #(TLog #(TDiv #(WdAxiData, wd_data)))) word_ctr <- mkReg (0);
+        Reg #(Vector #(TDiv #(WdAxiData, wd_data), Bit #(wd_data))) word_buf <- mkRegU;
 
-        method ActionValue #(AXI3_Wr_Addr #(WdAddr, WdId)) issue if(active && credits[0] >= burst_len);
-            let addr = AXI3_Wr_Addr {
+        rule rl_issue if(active && credits[0] >= burst_len);
+            f_wr_addr.enq(AXI3_Wr_Addr {
                 awaddr: addr_ctr,
                 awlen: truncate(burst_len - 1),
                 awprot: 3'b000,
@@ -186,7 +195,7 @@ package DMA;
                 awburst: 2'b01,
                 awsize: fromInteger(valueOf(TLog#(WdAxiData))),
                 awid: ?
-            };
+            });
             f_outstanding.enq(len_ctr <= fromInteger(n_burst));
             if (len_ctr <= fromInteger(n_burst)) begin
                 active <= False;
@@ -195,10 +204,10 @@ package DMA;
                 len_ctr <= len_ctr - fromInteger(n_burst);
             end
             credits[0] <= credits[0] - burst_len;
-            return addr;
-        endmethod
+        endrule
 
-        method Action response(AXI3_Wr_Resp #(WdId) r);
+        rule rl_response;
+            let r <- pop(f_wr_resp);
             let last = f_outstanding.first;
             f_outstanding.deq;
             if(last) begin
@@ -208,25 +217,27 @@ package DMA;
                 if(r.bresp[1] != 1'b0)
                     ok <= False;
             end
-        endmethod
+        endrule
 
         interface req = to_FIFOF_I(f_req);
         interface resp = to_FIFOF_O(f_resp);
-        interface data_in = interface FIFOF_I;
+        interface data = interface FIFOF_I;
             method notFull = f_data.notFull;
-            method Action enq(Bit #(WdWrData) value);
+            method Action enq(Bit #(wd_data) value);
                 let first_beat = beat_ctr == 0;
                 let last_beat = beat_ctr == f_transfers.first.len - 1;
                 let ctr = word_ctr + (first_beat ? f_transfers.first.first : 0);
-                let last = last_beat ? f_transfers.first.last : -1;
+                let last = last_beat ? f_transfers.first.last : ~0;
                 let new_word = word_buf;
                 new_word[ctr] = value;
                 if(ctr == last) begin
-                    Bit #(TLog #(TDiv #(WdAxiData, 8))) first_byte = extend(f_transfers.first.first) * fromInteger(valueOf(WdWrData) / 8);
-                    Bit #(TLog #(TDiv #(WdAxiData, 8))) last_byte = (extend(f_transfers.first.last) + 1) * fromInteger(valueOf(WdWrData) / 8) - 1;
                     Bit #(TDiv #(WdAxiData, 8)) wstrb = -1;
-                    if(first_beat) wstrb = wstrb << first_byte;
-                    if(last_beat) wstrb = wstrb & ~((-1) << last_byte << 1);
+                    if(valueOf(wd_data) < valueOf(WdAxiData)) begin
+                        Bit #(TLog #(TDiv #(WdAxiData, 8))) first_byte = extend(f_transfers.first.first) * fromInteger(valueOf(wd_data) / 8);
+                        Bit #(TLog #(TDiv #(WdAxiData, 8))) last_byte = (extend(f_transfers.first.last) + 1) * fromInteger(valueOf(wd_data) / 8) - 1;
+                        if(first_beat) wstrb = wstrb << first_byte;
+                        if(last_beat) wstrb = wstrb & ~((-1) << last_byte << 1);
+                    end
                     f_data.enq(AXI3_Wr_Data {
                         wdata: pack(new_word),
                         wstrb: wstrb,
@@ -235,7 +246,7 @@ package DMA;
                     });
                     credits[1] <= credits[1] + 1;
                     word_ctr <= 0;
-                    word_buf <= replicate(32'hA5A5A5A5);/*FIXME*/
+                    word_buf <= replicate(0);/*FIXME*/
                     if(last_beat) begin
                         beat_ctr <= 0;
                         f_transfers.deq;
@@ -247,52 +258,56 @@ package DMA;
                 end
             endmethod
         endinterface;
-        interface data_out = to_FIFOF_O(f_data);
-
+        interface axi = interface AXI3_Wr_Master;
+            interface wr_addr = to_FIFOF_O(f_wr_addr);
+            interface wr_data = to_FIFOF_O(f_data);
+            interface wr_resp = to_FIFOF_I(f_wr_resp);
+        endinterface;
     endmodule
 
-    interface DMA #(numeric type num_rd_channels, numeric type num_wr_channels);
+    interface Fabric #(numeric type num_rd, numeric type num_wr);
         interface AXI3_Master_IFC #(WdAddr, WdAxiData, WdId) mem_ifc;
-        interface Vector #(num_rd_channels, FIFOF_I #(DMA_Req)) rd_req;
-        interface Vector #(num_rd_channels, FIFOF_O #(Bit #(WdRdData))) rd_data;
-        interface Vector #(num_wr_channels, FIFOF_I #(DMA_Req)) wr_req;
-        interface Vector #(num_wr_channels, FIFOF_I #(Bit #(WdWrData))) wr_data;
-        interface Vector #(num_wr_channels, FIFOF_O #(Bool)) wr_resp;
+        interface Vector #(num_rd, AXI3_Rd_Slave #(WdAddr, WdAxiData, WdId)) rd;
+        interface Vector #(num_wr, AXI3_Wr_Slave #(WdAddr, WdAxiData, WdId)) wr;
     endinterface
 
-    module mkDMA (DMA #(num_rd_channels, num_wr_channels));
+    module mkFabric (Fabric #(num_rd, num_wr));
         let xactor <- mkAXI3_Master_Xactor;
-        Vector #(num_rd_channels, DMARdChannel) rd_channels <- replicateM (mkDMARdChannel);
-        Vector #(num_wr_channels, DMAWrChannel) wr_channels <- replicateM (mkDMAWrChannel);
+
+        Vector #(num_rd, FIFOF #(AXI3_Rd_Addr #(WdAddr, WdId))) rd_addr <- replicateM (mkPipelineFIFOF);
+        Vector #(num_rd, FIFOF #(AXI3_Rd_Data #(WdAxiData, WdId))) rd_data <- replicateM (mkBypassFIFOF);
+        Vector #(num_wr, FIFOF #(AXI3_Wr_Addr #(WdAddr, WdId))) wr_addr <- replicateM (mkPipelineFIFOF);
+        Vector #(num_wr, FIFOF #(AXI3_Wr_Data #(WdAxiData, WdId))) wr_data <- replicateM (mkPipelineFIFOF);
+        Vector #(num_wr, FIFOF #(AXI3_Wr_Resp #(WdId))) wr_resp <- replicateM (mkBypassFIFOF);
 
         Reg #(Bool) current_wr_active[2] <- mkCReg (2, False);
         Reg #(Bit #(WdId)) current_wr_id[2] <- mkCRegU (2);
 
-        for(Integer i = 0; i < valueOf(num_rd_channels); i = i + 1)
+        for(Integer i = 0; i < valueOf(num_rd); i = i + 1)
             rule rl_rd_issue;
-                let r <- rd_channels[i].issue;
+                let r <- pop(rd_addr[i]);
                 r.arid = fromInteger(i);
                 xactor.rd_addr.enq(r);
             endrule
 
-        for(Integer i = 0; i < valueOf(num_wr_channels); i = i + 1)
+        for(Integer i = 0; i < valueOf(num_wr); i = i + 1)
             rule rl_wr_issue (!current_wr_active[1]);
-                let r <- wr_channels[i].issue;
+                let r <- pop(wr_addr[i]);
                 r.awid = fromInteger(i);
                 current_wr_active[1] <= True;
                 current_wr_id[1] <= fromInteger(i);
                 xactor.wr_addr.enq(r);
             endrule
 
-        if(valueOf(num_rd_channels) > 0)
+        if(valueOf(num_rd) > 0)
             rule rl_rd_data;
                 let r <- pop_o(xactor.rd_data);
-                rd_channels[r.rid].put_data(r.rdata);
+                rd_data[r.rid].enq(r);
             endrule
 
-        if(valueOf(num_wr_channels) > 0) begin
+        if(valueOf(num_wr) > 0) begin
             rule rl_wr_data (current_wr_active[0]);
-                let r <- pop_o(wr_channels[current_wr_id[0]].data_out);
+                let r <- pop(wr_data[current_wr_id[0]]);
                 xactor.wr_data.enq(AXI3_Wr_Data {
                     wdata: r.wdata,
                     wid: current_wr_id[0],
@@ -305,22 +320,25 @@ package DMA;
 
             rule rl_wr_resp;
                 let r <- pop_o(xactor.wr_resp);
-                wr_channels[r.bid].response(r);
+                wr_resp[r.bid].enq(r);
             endrule
         end
 
-        function FIFOF_I #(DMA_Req) get_rd_req(Integer i) = rd_channels[i].req;
-        function FIFOF_O #(Bit #(WdRdData)) get_rd_data(Integer i) = rd_channels[i].data;
-        function FIFOF_I #(DMA_Req) get_wr_req(Integer i) = wr_channels[i].req;
-        function FIFOF_I #(Bit #(WdWrData)) get_wr_data(Integer i) = wr_channels[i].data_in;
-        function FIFOF_O #(Bool) get_wr_resp(Integer i) = wr_channels[i].resp;
+        function AXI3_Rd_Slave #(WdAddr, WdAxiData, WdId) get_rd(Integer i) = 
+            interface AXI3_Rd_Slave;
+                interface rd_addr = to_FIFOF_I(rd_addr[i]);
+                interface rd_data = to_FIFOF_O(rd_data[i]);
+            endinterface;
+        function AXI3_Wr_Slave #(WdAddr, WdAxiData, WdId) get_wr(Integer i) = 
+            interface AXI3_Wr_Slave;
+                interface wr_addr = to_FIFOF_I(wr_addr[i]);
+                interface wr_data = to_FIFOF_I(wr_data[i]);
+                interface wr_resp = to_FIFOF_O(wr_resp[i]);
+            endinterface;
 
         interface mem_ifc = xactor.axi_side;
-        interface rd_req = genWith(get_rd_req);
-        interface rd_data = genWith(get_rd_data);
-        interface wr_req = genWith(get_wr_req);
-        interface wr_data = genWith(get_wr_data);
-        interface wr_resp = genWith(get_wr_resp);
+        interface rd = genWith(get_rd);
+        interface wr = genWith(get_wr);
 
     endmodule
 
