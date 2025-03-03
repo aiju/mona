@@ -11,6 +11,7 @@ package Texture;
     import ConfigDefs :: *;
     import SpecialFIFOs :: *;
     import Util :: *;
+    `include "Util.defines"
 
     typedef union tagged {
         void Flush;
@@ -29,16 +30,7 @@ package Texture;
         interface FIFOF_I #(Bit #(32)) dma_data;
     endinterface
 
-    module [ModWithConfig] mkTexture(Texture);
-        let ifc <- collectCBusIFC(mkTextureExposed);
-        return ifc;
-    endmodule
-
-    (* synthesize *)
-    module mkTextureExposed(IWithCBus#(ConfigBus, Texture));
-        let ifc <- exposeCBusIFC(mkTextureInternal);
-        return ifc;
-    endmodule
+    `SynthBoundary(mkTexture, mkTextureInternal, Texture)
 
     module [ModWithConfig] mkTextureInternal(Texture);
         FIFOF #(UVInterpOut) f_in <- mkPipelineFIFOF;

@@ -7,6 +7,8 @@ package Video;
     import Vector :: *;
     import CBus :: *;
     import ConfigDefs :: *;
+    import TextOverlay :: *;
+    `include "Util.defines"
 
     (* always_ready *)
     interface Ext_Video;
@@ -23,7 +25,9 @@ package Video;
         interface FIFOF_I #(Bit #(32)) dma_resp;
     endinterface
 
-    module [ModWithConfig] mkVideo(Video);
+    `SynthBoundary(mkVideo, mkVideoInternal, Video)
+
+    module [ModWithConfig] mkVideoInternal(Video);
         FIFOF #(DMA_Req) f_dma_req <- mkFIFOF;
         FIFOF #(Bit #(32)) f_dma_resp <- mkGFIFOF (False, True);
 
@@ -37,23 +41,30 @@ package Video;
 
         Reg #(Bit #(32)) addr_ctr <- mkReg(32'h1000_0000);
 
+        let text_overlay <- mkTextOverlay;
+
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_flip;
             div <= !div;
         endrule
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_inc_x (div && x < 640 + 16 + 96 + 48 - 1);
             x <= x + 1;
         endrule
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_inc_y (div && x == 640 + 16 + 96 + 48 - 1 && y < 480 + 10 + 2 + 33 - 1);
             x <= 0;
             y <= y + 1;
         endrule
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_update_seen_vsync (div && x == 640 + 16 + 96 + 48 - 1 && y == 479);
             seen_vsync <= True;
         endrule
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_update_in_vsync (div && x == 640 + 16 + 96 + 48 - 1);
             if(y == 479)
                 in_vsync <= True;
@@ -61,6 +72,7 @@ package Video;
                 in_vsync <= False;
         endrule
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_reset (div && x == 640 + 16 + 96 + 48 - 1 && y == 480 + 10 + 2 + 33 - 1);
             x <= 0;
             y <= 0;
@@ -68,8 +80,10 @@ package Video;
 
         Reg #(Bool) issue <- mkReg (False);
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_issue (div && x == 640 && (y < 479 || y == 480 + 10 + 2 + 33 - 1) && !issue);
             issue <= True;
+            text_overlay.start(y < 479 ? y + 1 : 0);
         endrule
 
         rule rl_issue_go (issue);
@@ -79,9 +93,12 @@ package Video;
             issue <= False;
         endrule
 
+        (* fire_when_enabled, no_implicit_conditions *)
         rule rl_pop (div && x < 640 && y < 480 || (y >= 480 && y < 480 + 10 + 2 + 33 - 1));
             if(f_dma_resp.notEmpty)
                 f_dma_resp.deq();
+            if(text_overlay.out.notEmpty)
+                text_overlay.out.deq();
         endrule
 
         interface ext = interface Ext_Video;
@@ -102,7 +119,10 @@ package Video;
             endmethod
 
             method data;
-                return f_dma_resp.notEmpty ? f_dma_resp.first[23:0] : 24'hFF;
+                if(text_overlay.out.notEmpty &&& text_overlay.out.first matches tagged Valid .rgba)
+                    return rgba[23:0];
+                else
+                    return f_dma_resp.notEmpty ? f_dma_resp.first[23:0] : 24'hFF;
             endmethod
         endinterface;
 

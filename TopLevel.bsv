@@ -22,6 +22,8 @@ package TopLevel;
     import UVInterp :: *;
     import Clear :: *;
     import Texture :: *;
+    import TextOverlay :: *;
+    `include "Util.defines"
 
 interface TopLevel;
     (* always_ready *) method Bit #(8) led;
@@ -37,17 +39,24 @@ interface TopLevelWithAxiSlave;
     interface AXI3_Slave_IFC #(32, 32, 12) hps_to_fpga_lw;
 endinterface
 
-module [ModWithConfig] mkInternals(TopLevel);
-    Fabric #(3, 3) fabric0 <- mkFabric;
-    Fabric #(1, 0) fabric1 <- mkFabric;
+`Parametrize2(mkFabric0, mkFabric, Fabric, 3, 3)
+`Parametrize2(mkFabric1, mkFabric, Fabric, 1, 0)
+`Parametrize1(mkDMARdChannel32, mkDMARdChannel, DMARdChannel, 32)
+`Parametrize1(mkDMARdChannel128, mkDMARdChannel, DMARdChannel, 128)
+`Parametrize1(mkDMAWrChannel32, mkDMAWrChannel, DMAWrChannel, 32)
+`Parametrize1(mkDMAWrChannel128, mkDMAWrChannel, DMAWrChannel, 128)
 
-    DMARdChannel #(32) dma_video <- mkDMARdChannel;
-    DMARdChannel #(32) dma_starter <- mkDMARdChannel;
-    DMARdChannel #(128) dma_depth_rd <- mkDMARdChannel;
-    DMAWrChannel #(128) dma_depth_wr <- mkDMAWrChannel;
-    DMARdChannel #(32) dma_texture <- mkDMARdChannel;
-    DMAWrChannel #(32) dma_pixel_out <- mkDMAWrChannel;
-    DMAWrChannel #(128) dma_clear <- mkDMAWrChannel;
+module [ModWithConfig] mkInternals(TopLevel);
+    let fabric0 <- mkFabric0;
+    let fabric1 <- mkFabric1;
+
+    DMARdChannel #(32) dma_video <- mkDMARdChannel32;
+    DMARdChannel #(32) dma_starter <- mkDMARdChannel32;
+    DMARdChannel #(128) dma_depth_rd <- mkDMARdChannel128;
+    DMAWrChannel #(128) dma_depth_wr <- mkDMAWrChannel128;
+    DMARdChannel #(32) dma_texture <- mkDMARdChannel32;
+    DMAWrChannel #(32) dma_pixel_out <- mkDMAWrChannel32;
+    DMAWrChannel #(128) dma_clear <- mkDMAWrChannel128;
 
     mkConnection(dma_starter.axi, fabric0.rd[0]);
     mkConnection(dma_depth_rd.axi, fabric0.rd[1]);

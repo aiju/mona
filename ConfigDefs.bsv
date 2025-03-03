@@ -51,5 +51,9 @@ package ConfigDefs;
     CAddr cfg_texture_en = CAddr {a: 12'h028, o: 0};
     CAddr cfg_texture_addr = full(12'h02C);
 
+    CAddr cfg_text_en = CAddr {a: 12'h080, o: 0};
+    CAddr cfg_text_access = CAddr {a: 12'h084, o: 0};
+    CAddr cfg_text_transparent = CAddr {a: 12'h088, o: 0};
+
 
 endpackage

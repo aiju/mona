@@ -5,7 +5,7 @@ use std::{
     fs::{File, OpenOptions},
     io::Read,
     os::unix::fs::OpenOptionsExt,
-    time,
+    time::Instant,
 };
 
 const MEM_START: u32 = 0x10000000;
@@ -18,7 +18,14 @@ const R_CONTROL: u32 = 0x004;
 const R_DISPLAY_FB: u32 = 0x008;
 const R_RENDER_TARGET: u32 = 0x00C;
 
+const B_STATUS_SEEN_VSYNC: u32 = 1;
+const B_STATUS_IN_VSYNC: u32 = 2;
+const B_STATUS_FLUSHED: u32 = 4;
 const B_STATUS_CLEAR_BUSY: u32 = 8;
+
+const B_CONTROL_START: u32 = 1;
+const B_CONTROL_FLUSH: u32 = 2;
+const B_CONTROL_INVALIDATE_DEPTH: u32 = 4;
 const B_CONTROL_CLEAR: u32 = 8;
 
 const R_DEPTH_MODE: u32 = 0x014;
@@ -29,6 +36,13 @@ const R_CLEAR_DATA: u32 = 0x024;
 
 const R_TEXTURE_EN: u32 = 0x028;
 const R_TEXTURE_ADDR: u32 = 0x02C;
+
+const R_TEXT_EN: u32 = 0x080;
+const B_TEXT_EN: u32 = 1;
+const R_TEXT_ACCESS: u32 = 0x084;
+const B_TEXT_ACCESS_FONT: u32 = 3 << 30;
+const B_TEXT_ACCESS_TEXT: u32 = 2 << 30;
+const R_TEXT_TRANSPARENT: u32 = 0x088;
 
 const FRAMEBUFFER1: u32 = MEM_START;
 const FRAMEBUFFER2: u32 = MEM_START + 4 * 1048576;
@@ -112,6 +126,47 @@ impl Hw {
         self.set_reg(R_CONTROL, B_CONTROL_CLEAR);
         while self.get_reg(R_STATUS) & B_STATUS_CLEAR_BUSY != 0 {}
     }
+    fn init_text(&mut self) {
+        let font = include_bytes!("VGA-ROM.F14");
+        for (addr, &data) in font.iter().enumerate() {
+            self.set_reg(
+                R_TEXT_ACCESS,
+                B_TEXT_ACCESS_FONT | (addr as u32) << 16 | data as u32,
+            );
+        }
+        for i in 0..80 * 30 {
+            self.set_reg(
+                R_TEXT_ACCESS,
+                B_TEXT_ACCESS_TEXT | (i as u32) << 16 | 0xf0 << 8 | 0x20,
+            );
+        }
+        self.set_reg(R_TEXT_TRANSPARENT, 15);
+        self.set_reg(R_TEXT_EN, B_TEXT_EN);
+    }
+    fn print(&mut self, mut x: u16, mut y: u16, str: &str) {
+        let x_left = x;
+        assert!(x < 80 && y < 30);
+        for ch in str.chars() {
+            if ch != '\n' {
+                self.set_reg(
+                    R_TEXT_ACCESS,
+                    B_TEXT_ACCESS_TEXT
+                        | ((y * 80 + x) as u32) << 16
+                        | 0x0d << 8
+                        | (ch as u32) & 255,
+                );
+            }
+            if x == 79 || ch == '\n' {
+                y += 1;
+                x = x_left;
+                if y == 30 {
+                    break;
+                }
+            } else {
+                x += 1;
+            }
+        }
+    }
 }
 
 #[repr(C)]
@@ -160,7 +215,11 @@ fn main() {
     hw.set_reg(R_TEXTURE_ADDR, TEXTUREBUFFER);
     hw.set_reg(R_TEXTURE_EN, 1);
 
+    hw.init_text();
+
     loop {
+        let frame_start = Instant::now();
+
         let matrix = matmul(&[
             projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
             translate(0.0, -1.0, 3.0),
@@ -183,20 +242,40 @@ fn main() {
             len += 1;
         }
 
+        let prep_done = Instant::now();
+
         hw.clear(render_fb, 640, 640, 480, 0x66666666u32);
         hw.clear(DEPTHBUFFER, 2048, 2048, 256, 0);
-        hw.set_reg(R_CONTROL, 4);
+        hw.set_reg(R_CONTROL, B_CONTROL_INVALIDATE_DEPTH);
+
+        let clear_done = Instant::now();
 
         hw.set_reg(R_RENDER_TARGET, render_fb);
-        hw.set_reg(R_CONTROL, 1 | len << 16);
-        hw.set_reg(R_CONTROL, 2);
-        while hw.get_reg(R_STATUS) & 4 == 0 {}
-        hw.set_reg(R_STATUS, 4);
+        hw.set_reg(R_CONTROL, B_CONTROL_START | len << 16);
+        hw.set_reg(R_CONTROL, B_CONTROL_FLUSH);
+        while hw.get_reg(R_STATUS) & B_STATUS_FLUSHED == 0 {}
+        hw.set_reg(R_STATUS, B_STATUS_FLUSHED);
 
-        while hw.get_reg(R_STATUS) & 1 == 0 || hw.get_reg(R_STATUS) & 2 == 0 {}
-        hw.set_reg(R_STATUS, 1);
+        let render_done = Instant::now();
+
+        while hw.get_reg(R_STATUS) & B_STATUS_IN_VSYNC == 0
+            || hw.get_reg(R_STATUS) & B_STATUS_SEEN_VSYNC == 0
+        {}
+        hw.set_reg(R_STATUS, B_STATUS_SEEN_VSYNC);
         std::mem::swap(&mut render_fb, &mut display_fb);
         hw.set_reg(R_DISPLAY_FB, display_fb);
+
+        hw.print(
+            1,
+            1,
+            &format!(
+                "FPS:     {:5.1}\nPrep:   {:5.1} ms\nClear:  {:5.1} ms\nRender: {:5.1} ms",
+                1.0 / frame_start.elapsed().as_secs_f64(),
+                (prep_done - frame_start).as_secs_f64() * 1000.0,
+                (clear_done - prep_done).as_secs_f64() * 1000.0,
+                (render_done - clear_done).as_secs_f64() * 1000.0
+            ),
+        );
 
         t += 0.01;
     }

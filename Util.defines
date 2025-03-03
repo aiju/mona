@@ -1,0 +1,27 @@
+import CBus :: *;
+import ConfigDefs :: *;
+
+`define SynthBoundary(mkM,mkM0,IM) \
+(*synthesize*)\
+module [Module] mkM``_V(IWithCBus #(ConfigBus, IM));\
+  let _ifc <- exposeCBusIFC(mkM0);\
+  return _ifc;\
+endmodule\
+module [ModWithConfig] mkM(IM);\
+  let _ifc <- collectCBusIFC(mkM``_V);\
+  return _ifc;\
+endmodule
+
+`define Parametrize1(mkMA,mkM,IM,Arg0) \
+(*synthesize*)\
+module mkMA(IM #(Arg0));\
+  let _ifc <- mkM;\
+  return _ifc;\
+endmodule
+
+`define Parametrize2(mkMA,mkM,IM,Arg0,Arg1) \
+(*synthesize*)\
+module mkMA(IM #(Arg0,Arg1));\
+  let _ifc <- mkM;\
+  return _ifc;\
+endmodule

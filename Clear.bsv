@@ -8,6 +8,7 @@ package Clear;
     import ConfigDefs :: *;
     import SpecialFIFOs :: *;
     import Util :: *;
+    `include "Util.defines"
 
     interface Clear;
         interface FIFOF_O #(DMA_Req) dma_req;
@@ -15,16 +16,7 @@ package Clear;
         interface FIFOF_I #(Bool) dma_resp;
     endinterface
 
-    module [ModWithConfig] mkClear(Clear);
-        let ifc <- collectCBusIFC(mkClearExposed);
-        return ifc;
-    endmodule
-
-    (* synthesize *)
-    module mkClearExposed(IWithCBus#(ConfigBus, Clear));
-        let ifc <- exposeCBusIFC(mkClearInternal);
-        return ifc;
-    endmodule
+    `SynthBoundary(mkClear, mkClearInternal, Clear)
 
     module [ModWithConfig] mkClearInternal(Clear);
         FIFOF #(DMA_Req) f_req <- mkBypassFIFOF;

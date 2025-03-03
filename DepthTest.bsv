@@ -11,6 +11,7 @@ package DepthTest;
     import CoarseRaster :: *;
     import CBus :: *;
     import SpecialFIFOs::*;
+    `include "Util.defines"
 
     typedef 128 WdLineSize;
     typedef 8 WdCacheAddr;
@@ -41,16 +42,7 @@ package DepthTest;
     } Cache_Req
     deriving (Bits, FShow);
 
-    module [ModWithConfig] mkDepthTest(DepthTest);
-        let ifc <- collectCBusIFC(mkDepthTestExposed);
-        return ifc;
-    endmodule
-
-    (* synthesize *)
-    module mkDepthTestExposed(IWithCBus#(ConfigBus, DepthTest));
-        let ifc <- exposeCBusIFC(mkDepthTestInternal);
-        return ifc;
-    endmodule
+    `SynthBoundary(mkDepthTest, mkDepthTestInternal, DepthTest)
 
     module [ModWithConfig] mkDepthTestInternal(DepthTest);
         let f_in <- mkFIFOF;

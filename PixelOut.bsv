@@ -12,6 +12,7 @@ package PixelOut;
     import SpecialFIFOs :: *;
     import Util :: *;
     import Texture :: *;
+    `include "Util.defines"
 
     interface PixelOut;
         interface FIFOF_I #(TextureOut) in;
@@ -20,16 +21,7 @@ package PixelOut;
         interface FIFOF_I #(Bool) dma_resp;
     endinterface
 
-    module [ModWithConfig] mkPixelOut(PixelOut);
-        let ifc <- collectCBusIFC(mkPixelOutExposed);
-        return ifc;
-    endmodule
-
-    (* synthesize *)
-    module mkPixelOutExposed(IWithCBus#(ConfigBus, PixelOut));
-        let ifc <- exposeCBusIFC(mkPixelOutInternal);
-        return ifc;
-    endmodule
+    `SynthBoundary(mkPixelOut, mkPixelOutInternal, PixelOut)
 
     module [ModWithConfig] mkPixelOutInternal(PixelOut);
         FIFOF #(TextureOut) f_in <- mkPipelineFIFOF;
