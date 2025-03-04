@@ -37,6 +37,8 @@ const R_CLEAR_DATA: u32 = 0x024;
 const R_TEXTURE_EN: u32 = 0x028;
 const R_TEXTURE_ADDR: u32 = 0x02C;
 
+const R_STATS_ENABLED: u32 = 0x030;
+
 const R_TEXT_EN: u32 = 0x080;
 const B_TEXT_EN: u32 = 1;
 const R_TEXT_ACCESS: u32 = 0x084;
@@ -216,8 +218,13 @@ fn main() {
     hw.set_reg(R_TEXTURE_EN, 1);
 
     hw.init_text();
+    hw.set_reg(R_STATS_ENABLED, 0);
 
     loop {
+        let start_stats = (0..7 * 4)
+            .map(|i| hw.get_reg(0x800 + 4 * i))
+            .collect::<Vec<_>>();
+
         let frame_start = Instant::now();
 
         let matrix = matmul(&[
@@ -244,17 +251,19 @@ fn main() {
 
         let prep_done = Instant::now();
 
-        hw.clear(render_fb, 640, 640, 480, 0x66666666u32);
+        //hw.clear(render_fb, 640, 640, 480, 0x66666666u32);
         hw.clear(DEPTHBUFFER, 2048, 2048, 256, 0);
         hw.set_reg(R_CONTROL, B_CONTROL_INVALIDATE_DEPTH);
 
         let clear_done = Instant::now();
 
         hw.set_reg(R_RENDER_TARGET, render_fb);
+        hw.set_reg(R_STATS_ENABLED, 1);
         hw.set_reg(R_CONTROL, B_CONTROL_START | len << 16);
         hw.set_reg(R_CONTROL, B_CONTROL_FLUSH);
         while hw.get_reg(R_STATUS) & B_STATUS_FLUSHED == 0 {}
         hw.set_reg(R_STATUS, B_STATUS_FLUSHED);
+        hw.set_reg(R_STATS_ENABLED, 0);
 
         let render_done = Instant::now();
 
@@ -265,12 +274,26 @@ fn main() {
         std::mem::swap(&mut render_fb, &mut display_fb);
         hw.set_reg(R_DISPLAY_FB, display_fb);
 
+        /*let stats = (0..7 * 4)
+            .map(|i| hw.get_reg(0x800 + 4 * i).wrapping_sub(start_stats[i as usize]))
+            .collect::<Vec<_>>();
+        println!("{:10}{:>12}{:>12}{:>12}{:>12}", "left", "empty", "empty", "not empty", "not empty");
+        println!("{:10}{:>12}{:>12}{:>12}{:>12}", "right", "full", "not full", "full", "not full");
+        for row in 0..7 {
+            print!("{:10}", ["starter->", "coarse->", "fine->", "depth->", "pixel->", "uv->", "texture->"][row]); 
+            for col in 0..4 {
+                print!("{:12}", stats[row * 4 + col]);
+            }
+            print!("\n");
+        }
+        print!("\n");*/
+
         hw.print(
             1,
             1,
             &format!(
-                "FPS:     {:5.1}\nPrep:   {:5.1} ms\nClear:  {:5.1} ms\nRender: {:5.1} ms",
-                1.0 / frame_start.elapsed().as_secs_f64(),
+                "FPS:     {:5.1}    \nPrep:   {:5.1} ms\nClear:  {:5.1} ms\nRender: {:5.1} ms",
+                1.0 / (render_done - clear_done).as_secs_f64(),
                 (prep_done - frame_start).as_secs_f64() * 1000.0,
                 (clear_done - prep_done).as_secs_f64() * 1000.0,
                 (render_done - clear_done).as_secs_f64() * 1000.0

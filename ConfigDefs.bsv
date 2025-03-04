@@ -55,5 +55,14 @@ package ConfigDefs;
     CAddr cfg_text_access = CAddr {a: 12'h084, o: 0};
     CAddr cfg_text_transparent = CAddr {a: 12'h088, o: 0};
 
+    CAddr cfg_stats_running = CAddr { a: 12'h030, o: 0 };
+
+    Bit #(12) cfg_stats_starter = 12'h800;
+    Bit #(12) cfg_stats_coarse = 12'h810;
+    Bit #(12) cfg_stats_fine = 12'h820;
+    Bit #(12) cfg_stats_depth = 12'h830;
+    Bit #(12) cfg_stats_pixel = 12'h840;
+    Bit #(12) cfg_stats_uv = 12'h850;
+    Bit #(12) cfg_stats_texture = 12'h860;
 
 endpackage

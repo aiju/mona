@@ -14,6 +14,10 @@ simbuild.%:
 sim.%: simbuild.%
 	build/$*.sim -V out.vcd
 
+simv.%: verilog.%
+	bsc -verilog -e mk$* $(BSCFLAGS) -o build/$*.sim
+	build/$*.sim +bscvcd
+
 .PHONY: quartus
 quartus:
 	quartus_map --read_settings_files=on --write_settings_files=off testhdl -c testhdl

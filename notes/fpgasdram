@@ -1,0 +1,20 @@
+FROM https://support.criticallink.com/redmine/projects/mityarm-5cs/wiki/important_note_about_fpgahps_sdram_bridge
+
+Important Note about FPGA/HPS SDRAM Bridge (2013-12-13)
+Altera has recently disclosed an implementation requirement related to the use of the FPGA to HPS SDRAM bridges. Until more formal technical notes are published at Altera, this page will be maintained to outline the understood issue for the benefits of MitySOM-5CSX customers.
+
+Configuration of the FPGA to HPS SDRAM (fpga2sdram) AXI bridges involves the following major steps:
+
+1. First, the FPGA ports on the fpga2sdram peripheral must be placed in reset. This is accomplished by writing a zero to the FPGAPORTRST register in the SDRAM Controller control group.
+2. Second, the FPGA must be configured with an image that includes the configuration of the fpga2sdram ports. The FPGA fabric asserts configuration input ports at the input to the fpga2sdram bridges. The configuration ports affect such things as the width of the port as well as the direction, etc. When the FPGA is not configured, these configuration inputs are not defined.
+3. Third, once the configuration inputs are set, the configuration must be then latched / applied to the fpga2sdram bridge peripheral. This is accomplished by writing a one to the APPLYCFG bit in the STATICCFG register in the SDRAM Controller control group. This bit can only be written to while the SDRAM DDR interface is guaranteed to be completely IDLE (including transfers from the ARM cores, DMAs, etc.).
+4. Finally, the FPGA ports on the fpga2sdram peripheral can be taken out of reset based on your configuration. This is accomplished by writing ones to the appropriate bits in the FPGAPORTRST register in the SDRAM Controller control group.
+If these steps are not followed, attempting to use an FPGA port on the HPS SDRAM bridge controller may result in critical failure -- the HPS subsystem may freeze and effectively lock up the processor.
+
+As a consequence to the note bolded in step 3, the fpga2sdram controller cannot be practically configured while most high level operating systems are running (linux, windows, android, etc.). Altera has provided the capability to set the configuration bit in step three with a macro command in their (and Critical Link's) u-Boot port. This is accomplished by copying a small routine to on-chip RAM that disables caches and asserts the APPLYCFG bit and then returns operation to the typical DDR space.
+
+Therefor, if you have an FPGA design that utilizes the fpga2sdram controller, you must program the FPGA in u-Boot following an FPGA / power on reset situation.
+
+Once the SDRAM controller is properly configured, the FPGA ports may be reset and enabled (steps 1 and 4) as often as necessary in order to facilitate reloading of the FPGA -- as long as the new fpga2sdram port configuration matches the original configuration. This will allow for reconfiguration of an FPGA while running linux, if necessary.
+
+

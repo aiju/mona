@@ -4,6 +4,7 @@ package Reciprocal;
     import Semi_FIFOF :: *;
     import Vector :: *;
     import Util :: *;
+    import SpecialFIFOs::*;
 
     typedef struct {
         Bit #(n) value;
@@ -31,10 +32,10 @@ package Reciprocal;
         Add#(b__, n, TMul#(2, n))
     );
 
-        FIFOF #(Bit #(n)) f_in <- mkFIFOF;
-        FIFOF #(RData #(n)) s0 <- mkFIFOF;
-        Vector #(TAdd #(N_Iter, 1), FIFOF #(RData #(n))) s1 <- replicateM (mkFIFOF);
-        Vector #(N_Iter, FIFOF #(RData #(n))) s2 <- replicateM (mkFIFOF);
+        FIFOF #(Bit #(n)) f_in <- mkPipelineFIFOF;
+        FIFOF #(RData #(n)) s0 <- mkPipelineFIFOF;
+        Vector #(TAdd #(N_Iter, 1), FIFOF #(RData #(n))) s1 <- replicateM (mkPipelineFIFOF);
+        Vector #(N_Iter, FIFOF #(RData #(n))) s2 <- replicateM (mkPipelineFIFOF);
 
         rule rl_s0;
             let x <- pop(f_in);

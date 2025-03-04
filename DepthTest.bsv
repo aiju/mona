@@ -46,7 +46,7 @@ package DepthTest;
 
     module [ModWithConfig] mkDepthTestInternal(DepthTest);
         let f_in <- mkFIFOF;
-        FIFOF #(FineRasterOut) f_out <- mkFIFOF;
+        FIFOF #(FineRasterOut) f_out <- mkSizedFIFOF(256);
         let f_rd_req <- mkFIFOF;
         let f_rd_data <- mkFIFOF;
         let f_wr_req <- mkFIFOF;
@@ -212,6 +212,13 @@ package DepthTest;
             return tuple3(pack(z_vec)[127:0], pack(z_vec)[255:128], update_pixels(req, pixels));
         endfunction
 
+        function Bool valid_output(FineRasterOut data);
+            case(data) matches
+                tagged Flush: return True;
+                tagged Tile .tile: return tile.pixels != 0;
+            endcase
+        endfunction
+
         // FIXME: this gets stuck without -aggressive-conditions
         rule rl_s2;
             let req = s1.first;
@@ -238,7 +245,8 @@ package DepthTest;
                     req);
                 if(get_pixels(req)[7:0] != 0) data0.upd(ca, new0);
                 if(get_pixels(req)[15:8] != 0) data1.upd(ca, new1);
-                f_out.enq(out);
+                if(valid_output(out))
+                    f_out.enq(out);
                 s1.deq;
             end
         endrule

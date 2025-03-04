@@ -23,6 +23,7 @@ package TopLevel;
     import Clear :: *;
     import Texture :: *;
     import TextOverlay :: *;
+    import Stats :: *;
     `include "Util.defines"
 
 interface TopLevel;
@@ -45,6 +46,8 @@ endinterface
 `Parametrize1(mkDMARdChannel128, mkDMARdChannel, DMARdChannel, 128)
 `Parametrize1(mkDMAWrChannel32, mkDMAWrChannel, DMAWrChannel, 32)
 `Parametrize1(mkDMAWrChannel128, mkDMAWrChannel, DMAWrChannel, 128)
+`Parametrize1(mkDMAWrChannel_SingleWord32, mkDMAWrChannel_SingleWord, DMAWrChannel, 32)
+
 
 module [ModWithConfig] mkInternals(TopLevel);
     let fabric0 <- mkFabric0;
@@ -55,7 +58,7 @@ module [ModWithConfig] mkInternals(TopLevel);
     DMARdChannel #(128) dma_depth_rd <- mkDMARdChannel128;
     DMAWrChannel #(128) dma_depth_wr <- mkDMAWrChannel128;
     DMARdChannel #(32) dma_texture <- mkDMARdChannel32;
-    DMAWrChannel #(32) dma_pixel_out <- mkDMAWrChannel32;
+    DMAWrChannel #(32) dma_pixel_out <- mkDMAWrChannel_SingleWord32;
     DMAWrChannel #(128) dma_clear <- mkDMAWrChannel128;
 
     mkConnection(dma_starter.axi, fabric0.rd[0]);
@@ -90,17 +93,17 @@ module [ModWithConfig] mkInternals(TopLevel);
 
     mkConnection(starter.dma_req, dma_starter.req);
     mkConnection(starter.dma_resp, dma_starter.data);
-    mkConnection(starter.out, coarse_raster.in);
 
     mkConnection(texture.dma_req, dma_texture.req);
     mkConnection(texture.dma_data, dma_texture.data);
 
-    mkConnection(coarse_raster.out, fine_raster.in);
-    mkConnection(fine_raster.out, depth_test.in);
-    mkConnection(depth_test.out, pixel_split.in);
-    mkConnection(pixel_split.out, uv_interp.in);
-    mkConnection(uv_interp.out, texture.in);
-    mkConnection(texture.out, pixel_out.in);
+    mkConnectionStats(cfg_stats_starter, starter.out, coarse_raster.in);
+    mkConnectionStats(cfg_stats_coarse, coarse_raster.out, fine_raster.in);
+    mkConnectionStats(cfg_stats_fine, fine_raster.out, depth_test.in);
+    mkConnectionStats(cfg_stats_depth, depth_test.out, pixel_split.in);
+    mkConnectionStats(cfg_stats_pixel, pixel_split.out, uv_interp.in);
+    mkConnectionStats(cfg_stats_uv, uv_interp.out, texture.in);
+    mkConnectionStats(cfg_stats_texture, texture.out, pixel_out.in);
 
     mkConnection(depth_test.rd_req, dma_depth_rd.req);
     mkConnection(depth_test.rd_data, dma_depth_rd.data);

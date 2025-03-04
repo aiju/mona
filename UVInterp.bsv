@@ -5,6 +5,7 @@ package UVInterp;
     import Reciprocal :: *;
     import Vector :: *;
     import Util :: *;
+    import SpecialFIFOs::*;
 
     typedef union tagged {
         void Flush;
@@ -35,12 +36,12 @@ package UVInterp;
 
     (* synthesize *)
     module mkUVInterp(UVInterp);
-        FIFOF #(UVInterpIn) f_in <- mkFIFOF;
-        FIFOF #(UVInterpOut) f_out <- mkFIFOF;
+        FIFOF #(UVInterpIn) f_in <- mkPipelineFIFOF;
+        FIFOF #(UVInterpOut) f_out <- mkBypassFIFOF;
 
         Reciprocal #(27) reciprocal <- mkReciprocal;
-        FIFOF #(Tuple5 #(Bool, UInt #(11), UInt #(11), Vector #(3, Int #(27)), Vector #(3, Int #(27)))) s0 <- mkFIFOF;
-        FIFOF #(Tuple5 #(Bool, UInt #(11), UInt #(11), Int #(27), Int #(27))) s1 <- mkFIFOF;
+        FIFOF #(Tuple5 #(Bool, UInt #(11), UInt #(11), Vector #(3, Int #(27)), Vector #(3, Int #(27)))) s0 <- mkPipelineFIFOF;
+        FIFOF #(Tuple5 #(Bool, UInt #(11), UInt #(11), Int #(27), Int #(27))) s1 <- mkSizedFIFOF (11) ;
 
         rule rl_s0;
             let d <- pop(f_in);

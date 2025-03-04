@@ -36,13 +36,13 @@ package Texture;
         FIFOF #(UVInterpOut) f_in <- mkPipelineFIFOF;
         FIFOF #(TextureOut) f_out <- mkBypassFIFOF;
         FIFOF #(DMA_Req) f_req <- mkBypassFIFOF;
-        FIFOF #(Bit #(32)) f_data <- mkBypassFIFOF;
+        FIFOF #(Bit #(32)) f_data <- mkPipelineFIFOF;
 
         Reg #(Bool) texture_en <- mkCBRegRW(cfg_texture_en, False);
 
         Reg #(Bit #(32)) texture_addr <- mkCBRegRW(cfg_texture_addr, 32'h0000_0000);
 
-        FIFOF #(Tuple3 #(Bool, UInt #(11), UInt #(11))) coords <- mkSizedFIFOF (4);
+        FIFOF #(Tuple3 #(Bool, UInt #(11), UInt #(11))) coords <- mkSizedFIFOF (20);
 
         rule rl_front_no (!texture_en);
             let data <- pop(f_in);
