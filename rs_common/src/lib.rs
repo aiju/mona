@@ -2,6 +2,8 @@
 
 use std::f64::consts::PI;
 
+pub mod scene;
+
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;
 pub const TILE_SIZE: usize = 4;
