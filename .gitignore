@@ -9,3 +9,4 @@ model/target/
 rs_common/target/
 driver/target/
 *.stp
+*.qws

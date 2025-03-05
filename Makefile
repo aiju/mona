@@ -25,6 +25,10 @@ quartus:
 	quartus_asm --read_settings_files=off --write_settings_files=off testhdl -c testhdl
 	quartus_eda --read_settings_files=off --write_settings_files=off testhdl -c testhdl
 	
+.PHONY: program
+program:
+	quartus_pgm -m jtag -o "p;output_files/testhdl.sof@2"
+
 .PHONY: driver
 driver:
 	@(cd driver; cargo build --target armv7-unknown-linux-gnueabihf)
