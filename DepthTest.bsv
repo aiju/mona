@@ -121,6 +121,8 @@ package DepthTest;
                     let yeet1 = tile.pixels[15:8] != 0 && is_yeet(tile.tx, tile.ty, t1);
                     if(need0) tag0.upd(ca, tag);
                     if(need1) tag1.upd(ca, tag);
+                    // FIXME BUG: we actually need to wait for write responses
+                    // in case this cacheline just got yeeted
                     if(need0 || need1)
                         f_rd_req.enq(DMA_Req {
                             addr: mem_addr(ca, tag, !need0),
