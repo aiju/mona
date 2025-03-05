@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use rs_common::{scene::*, *};
+use clap::Parser;
+use rs_common::*;
 
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
@@ -98,6 +99,7 @@ fn render_frame(
     primitives: &[BarePrimitive],
     buffer: &mut [u32],
     texture: &RgbImage,
+    show_bbox: bool,
 ) {
     buffer.fill(0);
     let mut depth = [-f64::INFINITY; WIDTH * HEIGHT];
@@ -110,22 +112,37 @@ fn render_frame(
             fine_raster(ctx, &p, &tile, buffer, &mut depth, texture);
         }
     }
-    for p in &data {
-        for x in p.bbox.min_x * TILE_SIZE..(p.bbox.max_x + 1) * TILE_SIZE {
-            buffer[p.bbox.min_y * TILE_SIZE * WIDTH + x] = 0xffffff;
-            buffer[((p.bbox.max_y + 1) * TILE_SIZE - 1) * WIDTH + x] = 0xffffff;
-        }
-        for y in p.bbox.min_y * TILE_SIZE..(p.bbox.max_y + 1) * TILE_SIZE {
-            buffer[p.bbox.min_x * TILE_SIZE + y * WIDTH] = 0xffffff;
-            buffer[((p.bbox.max_x + 1) * TILE_SIZE - 1) + y * WIDTH] = 0xffffff;
+    if show_bbox {
+        for p in &data {
+            for x in p.bbox.min_x * TILE_SIZE..(p.bbox.max_x + 1) * TILE_SIZE {
+                buffer[p.bbox.min_y * TILE_SIZE * WIDTH + x] = 0xffffff;
+                buffer[((p.bbox.max_y + 1) * TILE_SIZE - 1) * WIDTH + x] = 0xffffff;
+            }
+            for y in p.bbox.min_y * TILE_SIZE..(p.bbox.max_y + 1) * TILE_SIZE {
+                buffer[p.bbox.min_x * TILE_SIZE + y * WIDTH] = 0xffffff;
+                buffer[((p.bbox.max_x + 1) * TILE_SIZE - 1) + y * WIDTH] = 0xffffff;
+            }
         }
     }
+}
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[arg(long)]
+    show_stats: bool,
+    #[arg(long)]
+    show_bbox: bool,
+    #[arg(long, default_value = "CatRoom")]
+    scene: String,
 }
 
 use image::{ImageReader, RgbImage};
 use minifb::{Key, Window, WindowOptions};
 
 fn main() {
+    let cli = Cli::parse();
+
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let texture = ImageReader::open("/home/aiju/cat.jpg")
         .unwrap()
@@ -145,13 +162,15 @@ fn main() {
 
     window.set_target_fps(60);
 
-    let mut scene = CatRoomObj::default();
+    let mut scene = scene::create(&cli.scene).expect(&format!("unknown scene {}", &cli.scene));
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let primitives: Vec<_> = scene.prep().collect();
+        let primitives = scene.prep();
         let mut ctx = Context::default();
-        render_frame(&mut ctx, &primitives, &mut buffer, &texture);
-        println!("{:?}", ctx);
+        render_frame(&mut ctx, &primitives, &mut buffer, &texture, cli.show_bbox);
+        if cli.show_stats {
+            println!("{:?}", ctx);
+        }
 
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
 

@@ -2,7 +2,7 @@
 
 use crate::{debug::*, hw::*};
 use clap::Parser;
-use rs_common::{scene::*, *};
+use rs_common::*;
 use std::{fs::File, io::Read, time::Instant};
 
 pub mod debug;
@@ -48,6 +48,8 @@ struct Cli {
     show_fps: bool,
     #[arg(long)]
     show_stats: bool,
+    #[arg(long, default_value = "CatRoom")]
+    scene: String,
 }
 
 fn main() {
@@ -73,7 +75,7 @@ fn main() {
     let mut text_display = TextDisplay::new();
     text_display.init(&mut hw);
 
-    let mut scene = CatRoom::default();
+    let mut scene = scene::create(&cli.scene).expect(&format!("unknown scene {}", &cli.scene));
 
     loop {
         if cli.show_stats {
@@ -83,7 +85,7 @@ fn main() {
         let frame_start = Instant::now();
 
         let mut len = 0;
-        for p in scene.prep().flat_map(|p| CoarseRasterIn::new(&p)) {
+        for p in scene.prep().iter().flat_map(|p| CoarseRasterIn::new(p)) {
             let t = Triangle::new(&p);
             hw.write(MEM_START + 2 * 1048576 + 68 * len, t);
             len += 1;

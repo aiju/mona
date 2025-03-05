@@ -1,8 +1,22 @@
 use crate::*;
 
 pub trait Scene {
-    fn prep(&mut self) -> impl Iterator<Item = BarePrimitive>;
+    fn prep(&mut self) -> Vec<BarePrimitive>;
     fn update(&mut self, delta: f64);
+}
+
+pub fn create(spec: &str) -> Option<Box<dyn Scene>> {
+    let (name, arg) = match spec.split_once(':') {
+        Some((a, b)) => (a, Some(b)),
+        None => (spec, None),
+    };
+    match (name, arg) {
+        ("Cube", None) => Some(Box::new(Cube::default())),
+        ("DoubleCube", None) => Some(Box::new(DoubleCube::default())),
+        ("CatRoom", None) => Some(Box::new(CatRoom::default())),
+        ("Obj", Some(path)) => Some(Box::new(ObjScene::new(path))),
+        _ => None,
+    }
 }
 
 const CUBE: &'static [[[f64; 5]; 3]] = &[
@@ -74,7 +88,7 @@ pub struct Cube {
 }
 
 impl Scene for Cube {
-    fn prep(&mut self) -> impl Iterator<Item = BarePrimitive> {
+    fn prep(&mut self) -> Vec<BarePrimitive> {
         let matrix = matmul(&[
             projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
             translate(0.0, -0.0, 3.0),
@@ -83,6 +97,7 @@ impl Scene for Cube {
         CUBE.iter()
             .map(|v| BarePrimitive::new(*v))
             .map(move |p| p.transform(matrix))
+            .collect()
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;
@@ -95,7 +110,7 @@ pub struct DoubleCube {
 }
 
 impl Scene for DoubleCube {
-    fn prep(&mut self) -> impl Iterator<Item = BarePrimitive> {
+    fn prep(&mut self) -> Vec<BarePrimitive> {
         let mut tri = Vec::new();
         for y in 0..4 {
             for x in 0..4 {
@@ -114,7 +129,7 @@ impl Scene for DoubleCube {
                 );
             }
         }
-        tri.into_iter()
+        tri
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;
@@ -127,7 +142,7 @@ pub struct CatRoom {
 }
 
 impl Scene for CatRoom {
-    fn prep(&mut self) -> impl Iterator<Item = BarePrimitive> {
+    fn prep(&mut self) -> Vec<BarePrimitive> {
         let matrix = matmul(&[
             projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
             translate(0.0, -1.0, 3.0),
@@ -138,6 +153,39 @@ impl Scene for CatRoom {
             .iter()
             .map(|v| BarePrimitive::new(*v))
             .map(move |p| p.transform(matrix))
+            .collect()
+    }
+    fn update(&mut self, delta: f64) {
+        self.time += delta;
+    }
+}
+
+pub struct ObjScene {
+    model: Vec<BarePrimitive>,
+    time: f64,
+}
+
+impl ObjScene {
+    fn new(path: &str) -> Self {
+        let model = obj_loader::load_obj_file(path);
+        Self {
+            model,
+            time: Default::default(),
+        }
+    }
+}
+
+impl Scene for ObjScene {
+    fn prep(&mut self) -> Vec<BarePrimitive> {
+        let matrix = matmul(&[
+            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
+            translate(0.0, -2.0, 5.0),
+            rotate(30.0 * self.time, [0.0, 1.0, 0.0]),
+        ]);
+        self.model
+            .iter()
+            .map(move |p| p.transform(matrix))
+            .collect()
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;
