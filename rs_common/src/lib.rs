@@ -3,6 +3,7 @@
 use std::f64::consts::PI;
 
 pub mod scene;
+pub mod obj_loader;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;

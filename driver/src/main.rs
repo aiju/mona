@@ -121,7 +121,7 @@ fn main() {
                 1,
                 &format!(
                     "FPS:     {:5.1}\nPrep:   {:5.1} ms\nClear:  {:5.1} ms\nRender: {:5.1} ms",
-                    1.0 / (render_done - clear_done).as_secs_f64(),
+                    1.0 / (render_done - frame_start).as_secs_f64(),
                     (prep_done - frame_start).as_secs_f64() * 1000.0,
                     (clear_done - prep_done).as_secs_f64() * 1000.0,
                     (render_done - clear_done).as_secs_f64() * 1000.0

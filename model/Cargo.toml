@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 image = "0.25.5"
 minifb = "0.28.0"
+rs_common = { version = "0.1.0", path = "../rs_common" }
 show-image = "0.14.1"
