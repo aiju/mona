@@ -15,7 +15,7 @@ package PixelSplit;
 
     (* synthesize *)
     module mkPixelSplit(PixelSplit);
-        FIFOF #(UVInterpIn) f_out <- mkBypassFIFOF;
+        FIFOF #(UVInterpIn) f_out <- mkPipelineFIFOF;
 
         Reg #(Bool) c_active[2] <- mkCReg (2, False);
         Reg #(FineRasterOut) c_current[2] <- mkCRegU (2);

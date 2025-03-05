@@ -58,8 +58,8 @@ package DepthTest;
 
         RegFile #(CacheAddr, Tag) tag0 <- mkRegFileFull;
         RegFile #(CacheAddr, Tag) tag1 <- mkRegFileFull;
-        RegFile #(CacheAddr, Line) data0 <- mkRegFileFull;
-        RegFile #(CacheAddr, Line) data1 <- mkRegFileFull;
+        RegFile #(CacheAddr, Line) data0 <- mkRegFileWCF(0, ~0);
+        RegFile #(CacheAddr, Line) data1 <- mkRegFileWCF(0, ~0);
 
         Tag invalid_tag = ~0;
 
@@ -78,6 +78,8 @@ package DepthTest;
 
         FIFOF #(Cache_Req) s0 <- mkPipelineFIFOF;
         FIFOF #(Cache_Req) s1 <- mkPipelineFIFOF;
+        FIFOF #(Cache_Req) s2 <- mkPipelineFIFOF;
+        FIFOF #(Cache_Req) s3 <- mkPipelineFIFOF;
 
         Reg #(Bool) issue_invalidate <- mkCBRegRW(cfg_control_invalidate_depth, False);
         Reg #(Bool) invalidating <- mkReg (True);
@@ -153,8 +155,6 @@ package DepthTest;
             s1.enq(req);
         endrule
 
-        Reg #(Bool) second_word <- mkReg (False);
-
         function Action yeet(CacheAddr ca, Tag tag, Bool lower_half, Line line);
             action
                 f_wr_req.enq(DMA_Req {
@@ -219,36 +219,93 @@ package DepthTest;
             endcase
         endfunction
 
-        // FIXME: this gets stuck without -aggressive-conditions
-        rule rl_s2;
+        function Bool conflicts(Cache_Req req1, Maybe #(Cache_Req) req2);
+            if(req2 matches tagged Valid .req)
+                return get_pixels(req1) != 0 && get_pixels(req) != 0 &&
+                    req1.tile.Tile.tx == req.tile.Tile.tx && req1.tile.Tile.ty == req.tile.Tile.ty;
+            else
+                return False;
+        endfunction
+
+        FIFOF #(Line) line0 <- mkPipelineFIFOF;
+        FIFOF #(Line) line1 <- mkPipelineFIFOF;
+        Reg #(Bool) second_word <- mkReg (False);
+
+        RWire #(Cache_Req) interlock0 <- mkRWire;
+        RWire #(Cache_Req) interlock1 <- mkRWire;
+
+        rule rl_s2 (!conflicts(s1.first, interlock0.wget()) && !conflicts(s1.first, interlock1.wget()));
             let req = s1.first;
             let ca = cache_addr(req.tile.Tile.tx, req.tile.Tile.ty);
-            let line0 = data0.sub(ca);
-            let line1 = data1.sub(ca);
-            let fetched_line = ?;
-            if(req.need0 || req.need1) begin
-                fetched_line <- pop(f_rd_data);
-                if(req.need0 && req.need1 && !second_word) begin
-                    data0.upd(ca, fetched_line);
-                    if(req.yeet0) yeet(ca, req.old0, False, line0);
-                end
-                second_word <= req.need0 && req.need1 && !second_word;
-            end
-            if(!req.need0 || !req.need1 || second_word) begin
-                if(req.yeet0 && !req.need1)
-                    yeet(ca, req.old0, False, line0);
-                else if(req.yeet1)
-                    yeet(ca, req.old1, True, line1);
-                match {.new0, .new1, .out} = update_z(
-                    req.need0 && !req.need1 ? fetched_line : line0,
-                    req.need1 ? fetched_line : line1,
-                    req);
-                if(get_pixels(req)[7:0] != 0) data0.upd(ca, new0);
-                if(get_pixels(req)[15:8] != 0) data1.upd(ca, new1);
-                if(valid_output(out))
-                    f_out.enq(out);
+            let l0 = data0.sub(ca);
+            let l1 = data1.sub(ca);
+            if(!req.need0 && !req.need1) begin
+                line0.enq(l0);
+                line1.enq(l1);
+                s2.enq(req);
                 s1.deq;
+            end else if(req.need0 && !req.need1) begin
+                let fetched <- pop(f_rd_data);
+                line0.enq(fetched);
+                line1.enq(l1);
+                if(req.yeet0) yeet(ca, req.old0, False, l0);
+                s2.enq(req);
+                s1.deq;
+            end else if(!req.need0 && req.need1) begin
+                let fetched <- pop(f_rd_data);
+                line0.enq(l0);
+                line1.enq(fetched);
+                if(req.yeet1) yeet(ca, req.old1, True, l1);
+                s2.enq(req);
+                s1.deq;
+            end else if(req.need0 && req.need1 && !second_word) begin
+                let fetched <- pop(f_rd_data);
+                line0.enq(fetched);
+                if(req.yeet0) yeet(ca, req.old0, False, l0);
+                second_word <= True;
+            end else if(req.need0 && req.need1 && second_word) begin
+                let fetched <- pop(f_rd_data);
+                line1.enq(fetched);
+                if(req.yeet1) yeet(ca, req.old1, True, l1);
+                second_word <= False;
+                s1.deq;
+                s2.enq(req);
             end
+        endrule
+
+        FIFOF #(Line) line0_ <- mkPipelineFIFOF;
+        FIFOF #(Line) line1_ <- mkPipelineFIFOF;
+        FIFOF #(FineRasterOut) out_ <- mkPipelineFIFOF;
+
+        rule rl_s3_interlock;
+            interlock0.wset(s2.first);
+        endrule
+
+        rule rl_s3;
+            let req <- pop(s2);
+            let l0 <- pop(line0);
+            let l1 <- pop(line1);
+            match {.new0, .new1, .out} = update_z(l0, l1, req);
+            s3.enq(req);
+            line0_.enq(new0);
+            line1_.enq(new1);
+            out_.enq(out);
+        endrule
+
+        rule rl_s4_interlock;
+            interlock1.wset(s3.first);
+        endrule
+
+        rule rl_s4;
+            let req <- pop(s3);
+            let ca = cache_addr(req.tile.Tile.tx, req.tile.Tile.ty);
+            let new0 <- pop(line0_);
+            let new1 <- pop(line1_);
+            let out <- pop(out_);
+            if(get_pixels(req)[7:0] != 0) data0.upd(ca, new0);
+            if(get_pixels(req)[15:8] != 0) data1.upd(ca, new1);
+            if(valid_output(out))
+                f_out.enq(out);
         endrule
 
         // flush should probably wait for all responses to have arrived
