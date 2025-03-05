@@ -101,29 +101,29 @@ package Video;
                 text_overlay.out.deq();
         endrule
 
+        Reg #(Bool) r_clk <- mkRegU;
+        Reg #(Bool) r_hsync <- mkRegU;
+        Reg #(Bool) r_vsync <- mkRegU;
+        Reg #(Bool) r_de <- mkRegU;
+        Reg #(Bit #(24)) r_data <- mkRegU;
+
+        rule rl_output;
+            r_clk <= div;
+            r_hsync <= x >= 640+16 && x < 640+16+96;
+            r_vsync <= y >= 480+10 && y < 480+10+2;
+            r_de <= x < 640 && y < 480;
+            if(text_overlay.out.notEmpty &&& text_overlay.out.first matches tagged Valid .rgba)
+                r_data <= rgba[23:0];
+            else
+                r_data <= f_dma_resp.notEmpty ? f_dma_resp.first[23:0] : 24'hFF;
+        endrule
+
         interface ext = interface Ext_Video;
-            method clk;
-                return div;
-            endmethod
-
-            method hsync;
-                return x >= 640+16 && x < 640+16+96;
-            endmethod
-
-            method vsync;
-                return y >= 480+10 && y < 480+10+2;
-            endmethod
-
-            method de;
-                return x < 640 && y < 480;
-            endmethod
-
-            method data;
-                if(text_overlay.out.notEmpty &&& text_overlay.out.first matches tagged Valid .rgba)
-                    return rgba[23:0];
-                else
-                    return f_dma_resp.notEmpty ? f_dma_resp.first[23:0] : 24'hFF;
-            endmethod
+            method clk = r_clk;
+            method hsync = r_hsync;
+            method vsync = r_vsync;
+            method de = r_de;
+            method data = r_data;
         endinterface;
 
         interface dma_req = to_FIFOF_O(f_dma_req);
