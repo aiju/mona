@@ -45,13 +45,13 @@ package DepthTest;
     `SynthBoundary(mkDepthTest, mkDepthTestInternal, DepthTest)
 
     module [ModWithConfig] mkDepthTestInternal(DepthTest);
-        let f_in <- mkFIFOF;
+        let f_in <- mkPipelineFIFOF;
         FIFOF #(FineRasterOut) f_out <- mkSizedFIFOF(256);
-        let f_rd_req <- mkFIFOF;
-        let f_rd_data <- mkFIFOF;
-        let f_wr_req <- mkFIFOF;
-        let f_wr_data <- mkFIFOF;
-        let f_wr_resp <- mkFIFOF;
+        let f_rd_req <- mkBypassFIFOF;
+        let f_rd_data <- mkPipelineFIFOF;
+        let f_wr_req <- mkBypassFIFOF;
+        let f_wr_data <- mkBypassFIFOF;
+        let f_wr_resp <- mkPipelineFIFOF;
 
         Reg #(Bit #(32)) depth_buffer <- mkCBRegRW(cfg_depth_buffer, 32'h1080_0000);
         Reg #(DepthMode) depth_mode <- mkCBRegRW(cfg_depth_mode, DEPTH_MODE_GT);
@@ -76,8 +76,8 @@ package DepthTest;
         function Bool is_yeet(UInt #(9) tx, UInt #(9) ty, Tag tag)
             = tag != invalid_tag && tag != valid_tag(tx, ty);
 
-        FIFOF #(Cache_Req) s0 <- mkFIFOF;
-        FIFOF #(Cache_Req) s1 <- mkFIFOF;
+        FIFOF #(Cache_Req) s0 <- mkPipelineFIFOF;
+        FIFOF #(Cache_Req) s1 <- mkPipelineFIFOF;
 
         Reg #(Bool) issue_invalidate <- mkCBRegRW(cfg_control_invalidate_depth, False);
         Reg #(Bool) invalidating <- mkReg (True);
@@ -251,6 +251,7 @@ package DepthTest;
             end
         endrule
 
+        // flush should probably wait for all responses to have arrived
         rule rl_wr_resp;
             f_wr_resp.deq;
         endrule
