@@ -37,6 +37,12 @@ package Reciprocal;
         Vector #(TAdd #(N_Iter, 1), FIFOF #(RData #(n))) s1 <- replicateM (mkPipelineFIFOF);
         Vector #(N_Iter, FIFOF #(RData #(n))) s2 <- replicateM (mkPipelineFIFOF);
 
+        // FIXME: horrible hacky implementation that should be replaced by something better
+        // first we normalise the input to be of the form .1xxxxx... (i.e. into the range 0.5 to 1)
+        // then we do a linear approximation and N_Iter iterations of newton-raphson
+        // todo: we should maybe use a lookup table for the first step
+        // also need to actually think about rounding
+
         rule rl_s0;
             let x <- pop(f_in);
             Bit #(TLog#(n)) sh = pack(truncate(countZerosMSB(x)));

@@ -166,6 +166,8 @@ package DMA;
                 : fromInteger(n_burst);
         endfunction
 
+        // FIXME: this code should be rewritten to allow 1 req per cycle
+
         rule rl_start (!active);
             active <= True;
             let req <- pop(f_req);
@@ -264,6 +266,8 @@ package DMA;
             interface wr_resp = to_FIFOF_I(f_wr_resp);
         endinterface;
     endmodule
+
+    // hacked faster version that can hopefully go away when DMAWrChannel is improved
 
     module mkDMAWrChannel_SingleWord(DMAWrChannel #(wd_data))
             provisos (Add#(a__, wd_data, WdAxiData),
