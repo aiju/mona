@@ -3,10 +3,6 @@
 use clap::Parser;
 use rs_common::*;
 
-const WIDTH: usize = 640;
-const HEIGHT: usize = 480;
-const TILE_SIZE: usize = 4;
-
 #[derive(Default, Debug)]
 struct Context {
     primitives: u64,

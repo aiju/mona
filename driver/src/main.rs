@@ -48,6 +48,8 @@ struct Cli {
     show_fps: bool,
     #[arg(long)]
     show_stats: bool,
+    #[arg(long)]
+    disable_depth_buffer: bool,
     #[arg(long, default_value = "CatRoom")]
     scene: String,
 }
@@ -68,6 +70,7 @@ fn main() {
         hw.set_reg(R_TEXTURE_ADDR, TEXTUREBUFFER);
     }
     hw.set_reg(R_TEXTURE_EN, !cli.textures_off as u32);
+    hw.set_reg(R_DEPTH_MODE, if cli.disable_depth_buffer { 0 } else { 4 });
 
     hw.set_reg(R_STATS_ENABLED, 0);
 
