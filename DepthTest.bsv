@@ -83,6 +83,10 @@ package DepthTest;
         Reg #(Bool) invalidating <- mkReg (True);
         Reg #(CacheAddr) invalidating_addr <- mkReg (0);
 
+        SearchableFIFO #(Tuple2 #(CacheAddr, Bool)) outgoing_yeets <- mkSearchableFIFO (8);
+        function Bool yeet_test(CacheAddr a, Tuple2 #(CacheAddr, Bool) b)
+            = a == tpl_1(b);
+
         rule rl_start_invalidate (issue_invalidate && !invalidating);
             invalidating <= True;
             issue_invalidate <= False;
@@ -98,18 +102,21 @@ package DepthTest;
         endrule
 
         rule rl_s0;
-            FineRasterOut req <- pop(f_in);
+            FineRasterOut req = f_in.first;
             case(req) matches
-                tagged Flush: s0.enq(Cache_Req {
-                    tile: req,
-                    z: ?,
-                    need0: False,
-                    need1: False,
-                    yeet0: False,
-                    yeet1: False,
-                    old0: ?,
-                    old1: ?
-                });
+                tagged Flush: begin
+                    s0.enq(Cache_Req {
+                        tile: req,
+                        z: ?,
+                        need0: False,
+                        need1: False,
+                        yeet0: False,
+                        yeet1: False,
+                        old0: ?,
+                        old1: ?
+                    });
+                    f_in.deq;
+                end
                 tagged Tile .tile: begin
                     let ca = cache_addr(tile.tx, tile.ty);
                     let tag = valid_tag(tile.tx, tile.ty);
@@ -119,25 +126,29 @@ package DepthTest;
                     let need1 = tile.pixels[15:8] != 0 && is_need(tile.tx, tile.ty, t1);
                     let yeet0 = tile.pixels[7:0] != 0 && is_yeet(tile.tx, tile.ty, t0);
                     let yeet1 = tile.pixels[15:8] != 0 && is_yeet(tile.tx, tile.ty, t1);
-                    if(need0) tag0.upd(ca, tag);
-                    if(need1) tag1.upd(ca, tag);
-                    // FIXME BUG: we actually need to wait for write responses
-                    // in case this cacheline just got yeeted
-                    if(need0 || need1)
-                        f_rd_req.enq(DMA_Req {
-                            addr: mem_addr(ca, tag, !need0),
-                            len: need0 && need1 ? 32 : 16
+                    if(!yeet0 && !yeet1 || !outgoing_yeets.search(yeet_test(ca))) begin
+                        if(need0) tag0.upd(ca, tag);
+                        if(need1) tag1.upd(ca, tag);
+                        if(need0 || need1)
+                            f_rd_req.enq(DMA_Req {
+                                addr: mem_addr(ca, tag, !need0),
+                                len: need0 && need1 ? 32 : 16
+                            });
+                        if(yeet0 || yeet1) begin
+                            outgoing_yeets.enq(tuple2(ca, yeet0 && yeet1));
+                        end
+                        s0.enq(Cache_Req {
+                            tile: req,
+                            z: ?,
+                            need0: need0,
+                            need1: need1,
+                            yeet0: yeet0,
+                            yeet1: yeet1,
+                            old0: t0,
+                            old1: t1
                         });
-                    s0.enq(Cache_Req {
-                        tile: req,
-                        z: ?,
-                        need0: need0,
-                        need1: need1,
-                        yeet0: yeet0,
-                        yeet1: yeet1,
-                        old0: t0,
-                        old1: t1
-                    });
+                        f_in.deq;
+                    end
                 end
             endcase
         endrule
@@ -253,8 +264,14 @@ package DepthTest;
             end
         endrule
 
+        Reg #(Bool) second_resp <- mkReg (False);
+
         // flush should probably wait for all responses to have arrived
         rule rl_wr_resp;
+            match {.ca, .two_words} = outgoing_yeets.first;
+            if(!two_words || second_resp)
+                outgoing_yeets.deq;
+            second_resp <= two_words && !second_resp;
             f_wr_resp.deq;
         endrule
 
@@ -276,6 +293,42 @@ package DepthTest;
         interface wr_req = dummy_FIFOF_O;
         interface wr_data = dummy_FIFOF_O;
         interface wr_resp = dummy_FIFOF_I;
+    endmodule
+
+    import List :: *;
+
+    interface SearchableFIFO #(type t);
+        method Action enq(t elem);
+        method t first;
+        method Action deq;
+        method Bool search(function Bool test_fn (t elem));
+    endinterface
+
+    module mkSearchableFIFO #(Integer size) (SearchableFIFO #(t))
+            provisos (Bits#(t, b__));
+        List #(Array #(Reg #(Maybe #(t)))) regs <- List::replicateM (size, mkCReg (2, tagged Invalid));
+
+        method t first if (regs[0][0] matches tagged Valid .v) = v;
+        method Action deq;
+            for(Integer i = 0; i < size - 1; i = i + 1)
+                regs[i][0] <= regs[i+1][0];
+        endmethod
+        method Action enq(t elem);
+            Bool got_it = False;
+            for(Integer i = 0; i < size; i = i + 1) begin
+                if(regs[i][1] matches tagged Invalid &&& !got_it) begin
+                    regs[i][1] <= tagged Valid elem;
+                    got_it = True;
+                end
+            end
+        endmethod
+        method Bool search(function Bool test_fn (t elem));
+            Bool result = False;
+            for(Integer i = 0; i < size; i = i + 1)
+                if(regs[i][1] matches tagged Valid .v &&& test_fn(v))
+                    result = True;
+            return result;
+        endmethod
     endmodule
 
 endpackage
