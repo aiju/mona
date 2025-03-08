@@ -2,8 +2,8 @@
 
 use std::f64::consts::PI;
 
-pub mod scene;
 pub mod obj_loader;
+pub mod scene;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;
@@ -165,10 +165,41 @@ fn lerp2(a: [f64; 2], b: [f64; 2], l: f64) -> [f64; 2] {
     [a[0] * l + b[0] * (1.0 - l), a[1] * l + b[1] * (1.0 - l)]
 }
 
+pub fn xyz(a: [f64; 4]) -> [f64; 3] {
+    [a[0], a[1], a[2]]
+}
+
+pub fn vec_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+pub fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+pub fn normalize(a: [f64; 3]) -> [f64; 3] {
+    let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    if l < 1e-20 {
+        [0.0, 0.0, 0.0]
+    } else {
+        let l = 1.0 / l;
+        [a[0] * l, a[1] * l, a[2] * l]
+    }
+}
+
+pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
 #[derive(Debug, Clone)]
 pub struct BarePrimitive {
     pub vertices: [[f64; 4]; 3],
     pub uv: [[f64; 2]; 3],
+    pub rgb: [u32; 3],
 }
 
 #[derive(Debug, Clone)]
@@ -183,12 +214,13 @@ impl BarePrimitive {
     pub fn new(data: [[f64; 5]; 3]) -> Self {
         let vertices = data.map(|d| [d[0], d[1], d[2], 1.0]);
         let uv = data.map(|d| [d[3], d[4]]);
-        BarePrimitive { vertices, uv }
+        let rgb = [!0; 3];
+        BarePrimitive { vertices, uv, rgb }
     }
     pub fn transform(&self, matrix: Matrix) -> Self {
         BarePrimitive {
             vertices: self.vertices.map(|v| matmulv(matrix, v)),
-            uv: self.uv,
+            ..self.clone()
         }
     }
     fn clip_corner(
@@ -224,10 +256,14 @@ impl BarePrimitive {
                     BarePrimitive {
                         vertices: [va, self.vertices[j], self.vertices[k]],
                         uv: [uva, self.uv[j], self.uv[k]],
+                        // TODO: fix this
+                        rgb: self.rgb,
                     },
                     BarePrimitive {
                         vertices: [va, vb, self.vertices[k]],
                         uv: [uva, uvb, self.uv[k]],
+                        // TODO: fix this
+                        rgb: self.rgb,
                     },
                 ]
             }
@@ -239,6 +275,8 @@ impl BarePrimitive {
                 vec![BarePrimitive {
                     vertices: [self.vertices[i], va, vb],
                     uv: [self.uv[i], uva, uvb],
+                    // TODO: fix this
+                    rgb: self.rgb,
                 }]
             }
             0b000 => vec![self.clone()],
@@ -248,7 +286,7 @@ impl BarePrimitive {
     fn project(&self) -> Self {
         BarePrimitive {
             vertices: self.vertices.map(project),
-            uv: self.uv,
+            ..self.clone()
         }
     }
     fn edge_mat(&self) -> Option<[[f64; 3]; 3]> {
@@ -332,12 +370,28 @@ impl BarePrimitive {
             max_y: (y1 / TILE_SIZE as f64).clamp(0.0, ((HEIGHT - 1) / TILE_SIZE) as f64) as usize,
         })
     }
+    fn lighting(&self, ambient: f64, diffuse: f64, direction: [f64; 3]) -> Self {
+        let l = dot(
+            direction,
+            normalize(cross(
+                vec_sub(xyz(self.vertices[0]), xyz(self.vertices[1])),
+                vec_sub(xyz(self.vertices[0]), xyz(self.vertices[2])),
+            )),
+        )
+        .clamp(0.0, 1.0);
+        let ll = (ambient + l * diffuse).clamp(0.0, 1.0);
+        Self {
+            rgb: [((ll * 255.0) as u32) * 0x10101; 3],
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct CoarseRasterIn {
     pub edge_mat: [[f64; 3]; 3],
     pub uv: [[f64; 2]; 3],
+    pub rgb: [u32; 3],
     pub bbox: BBox,
 }
 
@@ -352,6 +406,7 @@ impl CoarseRasterIn {
         Some(CoarseRasterIn {
             edge_mat,
             uv: p.uv,
+            rgb: p.rgb,
             bbox,
         })
     }

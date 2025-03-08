@@ -13,6 +13,7 @@ pub mod hw;
 struct Triangle {
     edge_vec: [[i32; 3]; 3],
     uv: [[i32; 2]; 3],
+    rgb: [u32; 3],
     min_x: u16,
     min_y: u16,
     max_x: u16,
@@ -31,6 +32,7 @@ impl Triangle {
         Triangle {
             edge_vec,
             uv,
+            rgb: c.rgb,
             min_x: c.bbox.min_x as u16,
             min_y: c.bbox.min_y as u16,
             max_x: c.bbox.max_x as u16,
@@ -90,7 +92,7 @@ fn main() {
         let mut len = 0;
         for p in scene.prep().iter().flat_map(|p| CoarseRasterIn::new(p)) {
             let t = Triangle::new(&p);
-            hw.write(MEM_START + 2 * 1048576 + 68 * len, t);
+            hw.write(MEM_START + 2 * 1048576 + 80 * len, t);
             len += 1;
         }
 

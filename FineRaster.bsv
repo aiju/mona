@@ -13,6 +13,7 @@ package FineRaster;
             Bit #(16) pixels;
             Vector #(3, EdgeFn) edge_fns;
             Vector #(3, Vector #(2, Int #(27))) uv;
+            Vector #(3, Vector #(3, Bit #(8))) rgb;
         } Tile;
     } FineRasterOut
     deriving (Bits, FShow);
@@ -48,7 +49,8 @@ package FineRaster;
                             ty: p.ty,
                             pixels: pixels,
                             edge_fns: p.edge_fns,
-                            uv: p.uv
+                            uv: p.uv,
+                            rgb: p.rgb
                         });
                 end
             endcase

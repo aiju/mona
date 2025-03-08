@@ -31,6 +31,7 @@ package PixelSplit;
             active <= False;
         endrule
 
+        // TODO: this infers multipliers, but can be done using just adders
         function Int #(27) edge_vec(Bit #(4) yx, Vector #(3, EdgeFn) edge_fns, Integer i)
             = edge_fns[i].a
                 + edge_fns[i].x * zeroExtend(unpack(yx[1:0]))
@@ -42,7 +43,8 @@ package PixelSplit;
                 uv: tile.uv,
                 x: zeroExtend(tile.tx) * 4 + zeroExtend(unpack(yx[1:0])),
                 y: zeroExtend(tile.ty) * 4 + zeroExtend(unpack(yx[3:2])),
-                edge_vec: genWith(edge_vec(yx, tile.edge_fns))
+                edge_vec: genWith(edge_vec(yx, tile.edge_fns)),
+                rgb: tile.rgb
             });
             let new_pixels = tile.pixels & (tile.pixels - 1);
             active <= new_pixels != 0;
@@ -51,7 +53,8 @@ package PixelSplit;
                 uv: tile.uv,
                 edge_fns: tile.edge_fns,
                 tx: tile.tx,
-                ty: tile.ty
+                ty: tile.ty,
+                rgb: tile.rgb
             };
         endrule
 

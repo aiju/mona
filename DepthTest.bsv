@@ -182,6 +182,7 @@ package DepthTest;
                     ty: tile.ty,
                     edge_fns: tile.edge_fns,
                     uv: tile.uv,
+                    rgb: tile.rgb,
                     pixels: pixels
                 };
             endcase

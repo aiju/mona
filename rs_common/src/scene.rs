@@ -177,14 +177,18 @@ impl ObjScene {
 
 impl Scene for ObjScene {
     fn prep(&mut self) -> Vec<BarePrimitive> {
-        let matrix = matmul(&[
+        let object = rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
+        let view = matmul(&[
             projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
             translate(0.0, -2.0, 5.0),
-            rotate(30.0 * self.time, [0.0, 1.0, 0.0]),
         ]);
         self.model
             .iter()
-            .map(move |p| p.transform(matrix))
+            .map(move |p| {
+                p.transform(object)
+                    .lighting(0.3, 0.3, [0.707, 0.0, -0.707])
+                    .transform(view)
+            })
             .collect()
     }
     fn update(&mut self, delta: f64) {

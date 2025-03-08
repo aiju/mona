@@ -16,6 +16,7 @@ package CoarseRaster;
         struct {
             Vector #(3, EdgeFn) edge_fns;
             Vector #(3, Vector #(2, Int #(27))) uv;
+            Vector #(3, Vector #(3, Bit #(8))) rgb;
             UInt #(9) min_x;
             UInt #(9) max_x;
             UInt #(9) min_y;
@@ -29,6 +30,7 @@ package CoarseRaster;
         struct {
             Vector #(3, EdgeFn) edge_fns;
             Vector #(3, Vector #(2, Int #(27))) uv;
+            Vector #(3, Vector #(3, Bit #(8))) rgb;
             UInt #(9) tx;
             UInt #(9) ty;
         } Tile;
@@ -55,6 +57,7 @@ package CoarseRaster;
         Reg #(UInt #(9)) tx <- mkRegU;
         Reg #(UInt #(9)) ty <- mkRegU;
         Reg #(Vector #(3, Vector #(2, Int #(27)))) uv <- mkRegU;
+        Reg #(Vector #(3, Vector #(3, Bit #(8)))) rgb <- mkRegU;
 
         function Int #(27) edge_fn(Integer i, Integer corner)
             = edge_fns[i].a
@@ -92,6 +95,7 @@ package CoarseRaster;
                     tx <= p.min_x;
                     ty <= p.min_y;
                     uv <= p.uv;
+                    rgb <= p.rgb;
                 end
             endcase
         endrule
@@ -102,7 +106,8 @@ package CoarseRaster;
                     edge_fns: edge_fns,
                     tx: tx,
                     ty: ty,
-                    uv: uv
+                    uv: uv,
+                    rgb: rgb
                 });
             end
             if(tx == max_x) begin

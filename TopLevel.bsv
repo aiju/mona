@@ -162,9 +162,10 @@ module [ModWithConfig] mkStarter(Starter);
     Reg #(UInt #(9)) min_y <- mkRegU;
     Reg #(UInt #(9)) max_x <- mkRegU;
     Reg #(UInt #(9)) max_y <- mkRegU;
+    Reg #(Vector #(3, Vector #(3, Bit #(8)))) rgb <- mkRegU;
 
     let fsm <- mkFSM (seq
-        f_dma_req.enq(DMA_Req { addr: 32'h1020_0000, len: 68 * extend(ctr) });
+        f_dma_req.enq(DMA_Req { addr: 32'h1020_0000, len: 80 * extend(ctr) });
         while(ctr > 0) seq
             action let x <- pop(f_dma_resp); edge_fns[0].x <= unpack(truncate(x)); endaction
             action let x <- pop(f_dma_resp); edge_fns[0].y <= unpack(truncate(x)); endaction
@@ -181,6 +182,9 @@ module [ModWithConfig] mkStarter(Starter);
             action let x <- pop(f_dma_resp); uv[1][1] <= unpack(truncate(x)); endaction
             action let x <- pop(f_dma_resp); uv[2][0] <= unpack(truncate(x)); endaction
             action let x <- pop(f_dma_resp); uv[2][1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); rgb[0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); rgb[1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); rgb[2] <= unpack(truncate(x)); endaction
             action 
                 let x <- pop(f_dma_resp);
                 min_y <= unpack(x[24:16]);
@@ -194,6 +198,7 @@ module [ModWithConfig] mkStarter(Starter);
             f_out.enq(tagged Triangle { 
                 edge_fns: edge_fns,
                 uv: uv,
+                rgb: rgb,
                 min_x: min_x,
                 min_y: min_y,
                 max_x: max_x,

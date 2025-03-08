@@ -180,7 +180,7 @@ impl ObjLoader {
             c
         });
         let t = vert.map(|(_, t, _)| t.map(|t| self.lookup_uv(t)).unwrap_or([0.0, 0.0]));
-        self.triangles.push(BarePrimitive { vertices: v, uv: t });
+        self.triangles.push(BarePrimitive { vertices: v, uv: t, rgb: [!0; 3] });
     }
     pub fn process_face(&mut self, face: Vec<(isize, Option<isize>, Option<isize>)>) {
         assert!(face.len() == 3 || face.len() == 4);
