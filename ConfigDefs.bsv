@@ -49,7 +49,18 @@ package ConfigDefs;
     CAddr cfg_clear_data = full(12'h024);
 
     CAddr cfg_texture_en = CAddr {a: 12'h028, o: 0};
+    CAddr cfg_texture_wrap_mode = CAddr {a: 12'h028, o: 1};
+    CAddr cfg_texture_width = CAddr {a: 12'h028, o: 4};
+    CAddr cfg_texture_height = CAddr {a: 12'h028, o: 8};
+    CAddr cfg_texture_stride = CAddr {a: 12'h028, o: 12};
     CAddr cfg_texture_addr = full(12'h02C);
+    CAddr cfg_texture_border = full(12'h034);
+    typedef enum {
+        WRAP_MODE_WRAP = 2'b00,
+        WRAP_MODE_CLAMP_TO_EDGE = 2'b01,
+        WRAP_MODE_CLAMP_TO_BORDER = 2'b10
+    } TexWrapMode
+    deriving (Bits, Eq, FShow);
 
     CAddr cfg_text_en = CAddr {a: 12'h080, o: 0};
     CAddr cfg_text_access = CAddr {a: 12'h084, o: 0};

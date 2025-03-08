@@ -6,6 +6,7 @@ package UVInterp;
     import Vector :: *;
     import Util :: *;
     import SpecialFIFOs::*;
+    import Defs :: *;
 
     typedef union tagged {
         void Flush;
@@ -13,8 +14,7 @@ package UVInterp;
             UInt #(11) x;
             UInt #(11) y;
             Vector #(3, Int #(27)) edge_vec;
-            Vector #(3, Vector #(2, Int #(27))) uv;
-            Vector #(3, Vector #(3, Bit #(8))) rgb;
+            PerVertexData per_vertex_data;
         } Pixel;
     } UVInterpIn
     deriving (Bits, FShow);
@@ -24,9 +24,7 @@ package UVInterp;
         struct {
             UInt #(11) x;
             UInt #(11) y;
-            Int #(27) u;
-            Int #(27) v;
-            Vector #(3, Bit #(8)) rgb;
+            PerVertex per_vertex;
         } Pixel;
     } UVInterpOut
     deriving (Bits, FShow);
@@ -36,11 +34,11 @@ package UVInterp;
         ReciprocalResult #(27) w;
         Vector #(3, Bit #(54)) e0;
         Vector #(3, Bit #(27)) e;
-        Vector #(3, Vector #(2, Int #(54))) u0;
-        Vector #(2, Int #(54)) u1;
-        Vector #(2, Int #(27)) u2;
-        Vector #(3, Vector #(3, Bit #(35))) rgb0;
-        Vector #(3, Bit #(35)) rgb1;
+        Vector #(3, Vector #(2, Bit #(36))) u0;
+        Vector #(2, Bit #(36)) u1;
+        Vector #(2, Bit #(18)) u2;
+        Vector #(3, Vector #(3, Bit #(18))) rgb0;
+        Vector #(3, Bit #(18)) rgb1;
         Vector #(3, Bit #(8)) rgb2;
     } UVInterpInternal
     deriving (Bits, FShow);
@@ -95,10 +93,10 @@ package UVInterp;
             UVInterpInternal d <- pop(s2);
             for(Integer i = 0; i < 3; i = i + 1)
                 for(Integer j = 0; j < 2; j = j + 1)
-                    d.u0[i][j] = extend(d.in.Pixel.uv[i][j]) * zeroExtend(unpack(d.e[i]));
+                    d.u0[i][j] = extend(d.in.Pixel.per_vertex_data[i].uv[j]) * zeroExtend(unpack(d.e[i][26:9]));
             for(Integer i = 0; i < 3; i = i + 1)
                 for(Integer j = 0; j < 3; j = j + 1)
-                    d.rgb0[i][j] = extend(d.in.Pixel.rgb[i][j]) * zeroExtend(unpack(d.e[i]));
+                    d.rgb0[i][j] = extend(d.in.Pixel.per_vertex_data[i].rgb[j]) * zeroExtend(unpack(d.e[i][26:17]));
             s3.enq(d);
         endrule
 
@@ -119,17 +117,18 @@ package UVInterp;
         rule rl_s5;
             UVInterpInternal d <- pop(s4);
             for(Integer j = 0; j < 2; j = j + 1)
-                d.u2[j] = truncate(d.u1[j] >> 27);
+                d.u2[j] = truncate(d.u1[j] >> 18);
             for(Integer j = 0; j < 3; j = j + 1)
-                d.rgb2[j] = truncate(d.rgb1[j] >> 27);
+                d.rgb2[j] = truncate(d.rgb1[j] >> 10);
             case(d.in) matches
                 tagged Flush: f_out.enq(tagged Flush);
                 tagged Pixel .p: f_out.enq(tagged Pixel {
                     x: p.x,
                     y: p.y,
-                    u: d.u2[0],
-                    v: d.u2[1],
-                    rgb: d.rgb2
+                    per_vertex: PerVertex {
+                        uv: d.u2,
+                        rgb: d.rgb2
+                    }
                 });
             endcase
         endrule

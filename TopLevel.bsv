@@ -24,6 +24,7 @@ package TopLevel;
     import Texture :: *;
     import TextOverlay :: *;
     import Stats :: *;
+    import Defs :: *;
     `include "Util.defines"
 
 interface TopLevel;
@@ -157,12 +158,11 @@ module [ModWithConfig] mkStarter(Starter);
     Reg #(Bit #(16)) ctr  <- mkRegU;
 
     Reg #(Vector #(3, EdgeFn)) edge_fns <- mkRegU;
-    Reg #(Vector #(3, Vector #(2, Int #(27)))) uv <- mkRegU;
     Reg #(UInt #(9)) min_x <- mkRegU;
     Reg #(UInt #(9)) min_y <- mkRegU;
     Reg #(UInt #(9)) max_x <- mkRegU;
     Reg #(UInt #(9)) max_y <- mkRegU;
-    Reg #(Vector #(3, Vector #(3, Bit #(8)))) rgb <- mkRegU;
+    Reg #(PerVertexData) pv <- mkRegU;
 
     let fsm <- mkFSM (seq
         f_dma_req.enq(DMA_Req { addr: 32'h1020_0000, len: 80 * extend(ctr) });
@@ -176,15 +176,15 @@ module [ModWithConfig] mkStarter(Starter);
             action let x <- pop(f_dma_resp); edge_fns[2].x <= unpack(truncate(x)); endaction
             action let x <- pop(f_dma_resp); edge_fns[2].y <= unpack(truncate(x)); endaction
             action let x <- pop(f_dma_resp); edge_fns[2].a <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); uv[0][0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); uv[0][1] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); uv[1][0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); uv[1][1] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); uv[2][0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); uv[2][1] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); rgb[0] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); rgb[1] <= unpack(truncate(x)); endaction
-            action let x <- pop(f_dma_resp); rgb[2] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[0].uv[0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[0].uv[1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[1].uv[0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[1].uv[1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[2].uv[0] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[2].uv[1] <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[0].rgb <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[1].rgb <= unpack(truncate(x)); endaction
+            action let x <- pop(f_dma_resp); pv[2].rgb <= unpack(truncate(x)); endaction
             action 
                 let x <- pop(f_dma_resp);
                 min_y <= unpack(x[24:16]);
@@ -197,8 +197,7 @@ module [ModWithConfig] mkStarter(Starter);
             endaction
             f_out.enq(tagged Triangle { 
                 edge_fns: edge_fns,
-                uv: uv,
-                rgb: rgb,
+                per_vertex_data: pv,
                 min_x: min_x,
                 min_y: min_y,
                 max_x: max_x,

@@ -3,6 +3,7 @@ package CoarseRaster;
     import FIFOF :: *;
     import Semi_FIFOF :: *;
     import Vector :: *;
+    import Defs :: *;
 
     typedef struct {
         Int #(27) x;
@@ -15,8 +16,7 @@ package CoarseRaster;
         void Flush;
         struct {
             Vector #(3, EdgeFn) edge_fns;
-            Vector #(3, Vector #(2, Int #(27))) uv;
-            Vector #(3, Vector #(3, Bit #(8))) rgb;
+            PerVertexData per_vertex_data;
             UInt #(9) min_x;
             UInt #(9) max_x;
             UInt #(9) min_y;
@@ -29,8 +29,7 @@ package CoarseRaster;
         void Flush;
         struct {
             Vector #(3, EdgeFn) edge_fns;
-            Vector #(3, Vector #(2, Int #(27))) uv;
-            Vector #(3, Vector #(3, Bit #(8))) rgb;
+            PerVertexData per_vertex_data;
             UInt #(9) tx;
             UInt #(9) ty;
         } Tile;
@@ -56,8 +55,7 @@ package CoarseRaster;
         Reg #(UInt #(9)) max_y <- mkRegU;
         Reg #(UInt #(9)) tx <- mkRegU;
         Reg #(UInt #(9)) ty <- mkRegU;
-        Reg #(Vector #(3, Vector #(2, Int #(27)))) uv <- mkRegU;
-        Reg #(Vector #(3, Vector #(3, Bit #(8)))) rgb <- mkRegU;
+        Reg #(PerVertexData) per_vertex_data <- mkRegU;
 
         function Int #(27) edge_fn(Integer i, Integer corner)
             = edge_fns[i].a
@@ -94,8 +92,7 @@ package CoarseRaster;
                     max_y <= p.max_y;
                     tx <= p.min_x;
                     ty <= p.min_y;
-                    uv <= p.uv;
-                    rgb <= p.rgb;
+                    per_vertex_data <= p.per_vertex_data;
                 end
             endcase
         endrule
@@ -106,8 +103,7 @@ package CoarseRaster;
                     edge_fns: edge_fns,
                     tx: tx,
                     ty: ty,
-                    uv: uv,
-                    rgb: rgb
+                    per_vertex_data: per_vertex_data
                 });
             end
             if(tx == max_x) begin

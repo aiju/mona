@@ -40,21 +40,19 @@ package PixelSplit;
         rule rl_process_pixel (active &&& current matches tagged Tile .tile &&& tile.pixels != 0);
             Bit #(4) yx = truncate(pack(countZerosLSB(tile.pixels)));
             f_out.enq(tagged Pixel {
-                uv: tile.uv,
                 x: zeroExtend(tile.tx) * 4 + zeroExtend(unpack(yx[1:0])),
                 y: zeroExtend(tile.ty) * 4 + zeroExtend(unpack(yx[3:2])),
                 edge_vec: genWith(edge_vec(yx, tile.edge_fns)),
-                rgb: tile.rgb
+                per_vertex_data: tile.per_vertex_data
             });
             let new_pixels = tile.pixels & (tile.pixels - 1);
             active <= new_pixels != 0;
             current <= tagged Tile {
                 pixels: new_pixels,
-                uv: tile.uv,
                 edge_fns: tile.edge_fns,
                 tx: tile.tx,
                 ty: tile.ty,
-                rgb: tile.rgb
+                per_vertex_data: tile.per_vertex_data
             };
         endrule
 

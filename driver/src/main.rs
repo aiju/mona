@@ -28,7 +28,7 @@ impl Triangle {
                 edge_vec[i][j] = (c.edge_mat[j][i] * (1 << 20) as f64) as i32;
             }
         }
-        let uv = c.uv.map(|row| row.map(|n| (n * (1 << 26) as f64) as i32));
+        let uv = c.uv.map(|row| row.map(|n| (n * (1 << 11) as f64) as i32 + (1<<17)));
         Triangle {
             edge_vec,
             uv,
@@ -70,8 +70,10 @@ fn main() {
             .unwrap();
 
         hw.set_reg(R_TEXTURE_ADDR, TEXTUREBUFFER);
+        hw.set_reg(R_TEXTURE_EN, 0x6661);
+    } else {
+        hw.set_reg(R_TEXTURE_EN, 0);
     }
-    hw.set_reg(R_TEXTURE_EN, !cli.textures_off as u32);
     hw.set_reg(R_DEPTH_MODE, if cli.disable_depth_buffer { 0 } else { 4 });
 
     hw.set_reg(R_STATS_ENABLED, 0);

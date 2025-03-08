@@ -15,6 +15,7 @@ pub fn create(spec: &str) -> Option<Box<dyn Scene>> {
         ("DoubleCube", None) => Some(Box::new(DoubleCube::default())),
         ("CatRoom", None) => Some(Box::new(CatRoom::default())),
         ("Obj", Some(path)) => Some(Box::new(ObjScene::new(path))),
+        ("Sphere", None) => Some(Box::new(Sphere::default())),
         _ => None,
     }
 }
@@ -190,6 +191,59 @@ impl Scene for ObjScene {
                     .transform(view)
             })
             .collect()
+    }
+    fn update(&mut self, delta: f64) {
+        self.time += delta;
+    }
+}
+
+#[derive(Default)]
+pub struct Sphere {
+    time: f64,
+}
+
+impl Scene for Sphere {
+    fn prep(&mut self) -> Vec<BarePrimitive> {
+        let view = matmul(&[
+            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
+            translate(0.0, 0.0, 3.0),
+        ]);
+        let theta_steps = 16;
+        let phi_steps = 16;
+        let coord = |i: i32, j: i32| {
+            let theta = PI * (i as f64) / (theta_steps as f64);
+            let phi = 2.0 * PI * (j as f64) / (phi_steps as f64);
+            let x = phi.cos() * theta.sin();
+            let y = phi.sin() * theta.sin();
+            let z = theta.cos();
+            [x, y, z, 1.0]
+        };
+        let mut tris = Vec::new();
+        for i in 0..theta_steps {
+            for j in 0..phi_steps {
+                tris.push(BarePrimitive {
+                    vertices: [coord(i, j), coord(i + 1, j), coord(i + 1, j + 1)],
+                    uv: [[0.0; 2]; 3],
+                    rgb: [!0; 3],
+                });
+                tris.push(BarePrimitive {
+                    vertices: [coord(i, j), coord(i + 1, j + 1), coord(i, j + 1)],
+                    uv: [[0.0; 2]; 3],
+                    rgb: [!0; 3],
+                });
+            }
+        }
+        for t in &mut tris {
+            for i in 0..3 {
+                let normal = xyz(t.vertices[i]);
+                let tt = self.time;
+                let direction = [tt.cos(), 0.0, -tt.sin()];
+                let s = dot(normal, direction).clamp(0.0, 1.0);
+                let l = 0.3 + 0.3 * s + 0.3 * s * s * s;
+                t.rgb[i] = ((l * 255.0) as u32) * 0x10101;
+            }
+        }
+        tris.iter().map(|p| p.transform(view)).collect()
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;

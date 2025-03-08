@@ -4,6 +4,7 @@ package FineRaster;
     import Semi_FIFOF :: *;
     import Vector :: *;
     import CoarseRaster :: *;
+    import Defs :: *;
 
     typedef union tagged {
         void Flush;
@@ -12,8 +13,7 @@ package FineRaster;
             UInt #(9) ty;
             Bit #(16) pixels;
             Vector #(3, EdgeFn) edge_fns;
-            Vector #(3, Vector #(2, Int #(27))) uv;
-            Vector #(3, Vector #(3, Bit #(8))) rgb;
+            PerVertexData per_vertex_data;
         } Tile;
     } FineRasterOut
     deriving (Bits, FShow);
@@ -49,8 +49,7 @@ package FineRaster;
                             ty: p.ty,
                             pixels: pixels,
                             edge_fns: p.edge_fns,
-                            uv: p.uv,
-                            rgb: p.rgb
+                            per_vertex_data: p.per_vertex_data
                         });
                 end
             endcase

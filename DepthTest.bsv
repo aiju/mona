@@ -181,8 +181,7 @@ package DepthTest;
                     tx: tile.tx,
                     ty: tile.ty,
                     edge_fns: tile.edge_fns,
-                    uv: tile.uv,
-                    rgb: tile.rgb,
+                    per_vertex_data: tile.per_vertex_data,
                     pixels: pixels
                 };
             endcase
