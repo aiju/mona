@@ -1,6 +1,7 @@
 use crate::{
     assets::AssetLoader,
     geometry::Matrix,
+    mesh::LoadedMesh,
     render::{Backend, Context, TextureId},
     *,
 };
@@ -23,7 +24,7 @@ pub fn create<B: Backend>(
     match (name, arg) {
         ("Cube", None) => Some(Box::new(Cube::new(context, loader))),
         ("CatRoom", None) => Some(Box::new(CatRoom::new(context, loader))),
-        ("Obj", Some(path)) => Some(Box::new(ObjScene::new(path))),
+        ("Obj", Some(path)) => Some(Box::new(ObjScene::new(context, loader, path))),
         ("Sphere", None) => Some(Box::new(Sphere::default())),
         _ => None,
     }
@@ -154,13 +155,13 @@ impl<B: Backend> Scene<B> for CatRoom {
 }
 
 pub struct ObjScene {
-    model: Vec<BarePrimitive>,
+    model: LoadedMesh,
     time: f64,
 }
 
 impl ObjScene {
-    fn new(path: &str) -> Self {
-        let model = obj_loader::load_obj_file(path);
+    fn new<B: Backend>(context: &mut Context<B>, loader: impl AssetLoader, path: &str) -> Self {
+        let model = obj_loader::load_obj_file(path).load(context, loader);
         Self {
             model,
             time: Default::default(),
@@ -173,16 +174,22 @@ impl<B: Backend> Scene<B> for ObjScene {
         let object = Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::translate(0.0, -2.0, 5.0);
-        let v: Vec<_> = self
-            .model
-            .iter()
-            .map(move |p| {
-                p.transform(object)
+        for (triangles, material) in self.model.triangles.iter().zip(&self.model.materials) {
+            let v: Vec<_> = triangles
+                .iter()
+                .map(|t| {
+                    BarePrimitive {
+                        vertices: t.vertices.map(From::from),
+                        uv: t.uv,
+                        rgb: t.rgb,
+                    }
+                    .transform(object)
                     .lighting(0.3, 0.3, [0.707, 0.0, -0.707].into())
                     .transform(view)
-            })
-            .collect();
-        context.draw().run(&v);
+                })
+                .collect();
+            context.draw().opt_textured(material.texture).run(&v);
+        }
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;

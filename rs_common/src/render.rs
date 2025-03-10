@@ -71,6 +71,10 @@ impl<B: Backend> DrawCall<'_, B> {
         self.texture = Some(texture);
         self
     }
+    pub fn opt_textured(mut self, texture: Option<TextureId>) -> Self {
+        self.texture = texture;
+        self
+    }
     pub fn run(self, triangles: &[BarePrimitive]) {
         let ctx = self.context;
         if ctx.current_texture != self.texture {

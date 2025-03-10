@@ -7,7 +7,7 @@ use rs_common::{
     render::{Backend, Context, Texture, TextureType},
     *,
 };
-use std::{fs::File, io::Read, time::Instant};
+use std::time::Instant;
 
 pub mod debug;
 pub mod hw;
@@ -108,23 +108,19 @@ impl HwBackend {
         self.cmd_ptr = 0x10200000;
         self.cmd_len = 0;
         self.frame_start = Instant::now();
+
+        self.hw.clear(self.render_fb, 640, 640, 480, 0x66666666u32);
+        self.hw.clear(self.depth_buffer, 2048, 2048, 256, 0);
+        self.hw.set_reg(R_CONTROL, B_CONTROL_INVALIDATE_DEPTH);
+
+        self.hw.set_reg(R_RENDER_TARGET, self.render_fb);
+        if self.cli.show_stats {
+            self.stats_collection.start(&mut self.hw);
+        }
     }
     fn render_frame(&mut self) {
         let mut hw = &mut self.hw;
-        let prep_done = Instant::now();
 
-        hw.clear(self.render_fb, 640, 640, 480, 0x66666666u32);
-        hw.clear(self.depth_buffer, 2048, 2048, 256, 0);
-        hw.set_reg(R_CONTROL, B_CONTROL_INVALIDATE_DEPTH);
-
-        let clear_done = Instant::now();
-
-        hw.set_reg(R_RENDER_TARGET, self.render_fb);
-        if self.cli.show_stats {
-            self.stats_collection.start(&mut hw);
-        }
-        hw.set_reg(R_CONTROL, B_CONTROL_START | self.cmd_len << 16);
-        hw.flush_pipeline();
         if self.cli.show_stats {
             self.stats_collection.stop(&mut hw);
         }
@@ -142,11 +138,8 @@ impl HwBackend {
                 1,
                 1,
                 &format!(
-                    "FPS:     {:5.1}\nPrep:   {:5.1} ms\nClear:  {:5.1} ms\nRender: {:5.1} ms",
+                    "FPS:     {:5.1}\n",
                     1.0 / (render_done - self.frame_start).as_secs_f64(),
-                    (prep_done - self.frame_start).as_secs_f64() * 1000.0,
-                    (clear_done - prep_done).as_secs_f64() * 1000.0,
-                    (render_done - clear_done).as_secs_f64() * 1000.0
                 ),
             );
         }
@@ -194,11 +187,15 @@ impl Backend for HwBackend {
     }
 
     fn draw(&mut self, triangles: &[CoarseRasterIn]) {
+        self.cmd_ptr = 0x10200000;
+        self.cmd_len = 0;
         for t in triangles {
             self.hw.write(self.cmd_ptr, HwTriangle::new(t));
             self.cmd_ptr += size_of::<HwTriangle>() as u32;
             self.cmd_len += 1;
         }
+        self.hw.set_reg(R_CONTROL, B_CONTROL_START | self.cmd_len << 16);
+        self.hw.flush_pipeline();
     }
 }
 
@@ -206,20 +203,41 @@ impl Backend for HwBackend {
 struct DriverAssetLoader {}
 impl AssetLoader for DriverAssetLoader {
     type Error = ();
-    fn load_texture(&mut self, _name: &str) -> Result<render::Texture, Self::Error> {
-        let mut data = Vec::with_capacity(512 * 512 * 4);
-        File::open("texture.raw")
+    fn load_texture(&mut self, name: &str) -> Result<render::Texture, Self::Error> {
+        let image = image::ImageReader::open(std::path::Path::new("/mona/aiju").join(name))
             .unwrap()
-            .read_to_end(&mut data)
-            .unwrap();
+            .decode()
+            .unwrap()
+            .into_rgba8()
+            .into_flat_samples();
+        let mut data = image.samples;
+        for i in (0..data.len()).step_by(4) {
+            (data[i], data[i+2]) = (data[i+2], data[i]);
+        }
         Ok(Texture {
             data: data.into(),
             ty: TextureType {
-                width: 512,
-                height: 512,
-                stride: 512,
+                width: image.layout.width as usize,
+                height: image.layout.height as usize,
+                stride: image.layout.height_stride / 4,
             },
         })
+
+        /*
+            let mut data = Vec::with_capacity(512 * 512 * 4);
+            File::open("texture.raw")
+                .unwrap()
+                .read_to_end(&mut data)
+                .unwrap();
+            Ok(Texture {
+                data: data.into(),
+                ty: TextureType {
+                    width: 512,
+                    height: 512,
+                    stride: 512,
+                },
+            })
+        */
     }
 }
 

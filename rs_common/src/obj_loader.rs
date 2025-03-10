@@ -3,12 +3,13 @@
 use std::{
     io::{BufRead, BufReader, Lines},
     iter::Peekable,
+    path::Path,
     str::Chars,
 };
 
 use crate::{
-    BarePrimitive,
     geometry::{Vec2, Vec3},
+    mesh::{self, Mesh},
 };
 
 struct ItemParser<'a> {
@@ -21,6 +22,14 @@ enum Item {
     VertexNormal([f64; 3]),
     VertexTexture(Vec<f64>),
     Face(Vec<(isize, Option<isize>, Option<isize>)>),
+    UseMtl(String),
+    MtlLib(String),
+}
+
+#[derive(Debug)]
+enum MtlItem {
+    NewMtl(String),
+    MapKd(String),
 }
 
 impl<'a> ItemParser<'a> {
@@ -117,6 +126,26 @@ impl<'a> ItemParser<'a> {
         self.eol();
         Item::Face(vec)
     }
+    fn usemtl(&mut self) -> Item {
+        let name = self.field();
+        self.eol();
+        Item::UseMtl(name)
+    }
+    fn mtllib(&mut self) -> Item {
+        let name = self.field();
+        self.eol();
+        Item::MtlLib(name)
+    }
+    fn newmtl(&mut self) -> MtlItem {
+        let name = self.field();
+        self.eol();
+        MtlItem::NewMtl(name)
+    }
+    fn map_kd(&mut self) -> MtlItem {
+        let name = self.field();
+        self.eol();
+        MtlItem::MapKd(name)
+    }
     fn parse(&mut self) -> Option<Item> {
         if let Some(ty) = self.opt_field() {
             Some(match ty.as_str() {
@@ -124,6 +153,8 @@ impl<'a> ItemParser<'a> {
                 "vn" => self.vertex_normal(),
                 "vt" => self.vertex_texture(),
                 "f" => self.face(),
+                "usemtl" => self.usemtl(),
+                "mtllib" => self.mtllib(),
                 _ => {
                     eprint!("obj parser: skipping unknown item \"{ty}\"\n");
                     return None;
@@ -134,22 +165,77 @@ impl<'a> ItemParser<'a> {
             return None;
         }
     }
+    fn mtl_parse(&mut self) -> Option<MtlItem> {
+        if let Some(ty) = self.opt_field() {
+            Some(match ty.as_str() {
+                "newmtl" => self.newmtl(),
+                "map_Kd" => self.map_kd(),
+                _ => {
+                    eprint!("obj parser: skipping unknown mtl item \"{ty}\"\n");
+                    return None;
+                }
+            })
+        } else {
+            self.eol();
+            return None;
+        }
+    }
+}
+
+pub struct Material {
+    name: String,
+    texture: Option<String>,
+}
+
+#[derive(Default)]
+pub struct MtlLoader {
+    materials: Vec<Material>,
+}
+
+impl MtlLoader {
+    pub fn parse(mut self, obj_path: &str, path: &str) -> Vec<Material> {
+        let p = Path::new(obj_path).parent().unwrap().join(path);
+        let f = BufReader::new(std::fs::File::open(p).unwrap());
+        for line in f.lines() {
+            match ItemParser::new(&line.unwrap()).mtl_parse() {
+                Some(MtlItem::NewMtl(name)) => self.materials.push(Material {
+                    name,
+                    texture: None,
+                }),
+                Some(MtlItem::MapKd(name)) => {
+                    self.materials.last_mut().unwrap().texture = Some(name)
+                }
+                None => {}
+            }
+        }
+        self.materials
+    }
 }
 
 pub struct ObjLoader {
     vertices: Vec<Vec3>,
     normals: Vec<Vec3>,
     uv: Vec<Vec2>,
-    triangles: Vec<BarePrimitive>,
+    mesh: Mesh,
+    materials: Vec<Material>,
+    current_material: usize,
 }
 
 impl ObjLoader {
     pub fn new() -> Self {
+        let mut mesh = Mesh::default();
+        mesh.triangles.push(vec![]);
+        mesh.materials.push(mesh::Material { texture: None });
         ObjLoader {
             vertices: Vec::new(),
             normals: Vec::new(),
             uv: Vec::new(),
-            triangles: Vec::new(),
+            mesh,
+            materials: vec![Material {
+                name: "default".into(),
+                texture: None,
+            }],
+            current_material: 0,
         }
     }
     fn lookup_vertex(&mut self, n: isize) -> Vec3 {
@@ -176,10 +262,22 @@ impl ObjLoader {
             return self.uv[self.uv.len() - (-n) as usize];
         }
     }
+    fn lookup_texture(&mut self, name: &str) -> usize {
+        self.mesh
+            .textures
+            .iter()
+            .enumerate()
+            .find_map(|(i, n)| (n == name).then_some(i))
+            .unwrap_or_else(|| {
+                let i = self.mesh.textures.len();
+                self.mesh.textures.push(name.to_string());
+                i
+            })
+    }
     fn process_triangle(&mut self, vert: [(isize, Option<isize>, Option<isize>); 3]) {
         let v = vert.map(|(v, _, _)| self.lookup_vertex(v).into());
         let t = vert.map(|(_, t, _)| t.map(|t| self.lookup_uv(t)).unwrap_or_default());
-        self.triangles.push(BarePrimitive {
+        self.mesh.triangles[self.current_material].push(mesh::Triangle {
             vertices: v,
             uv: t,
             rgb: [!0; 3],
@@ -194,28 +292,41 @@ impl ObjLoader {
             self.process_triangle([face[0], face[2], face[3]]);
         }
     }
-    pub fn parse<T: BufRead>(mut self, lines: Lines<T>) -> Vec<BarePrimitive> {
+    pub fn parse<T: BufRead>(mut self, path: &str, lines: Lines<T>) -> Mesh {
         for line in lines {
             match ItemParser::new(&line.unwrap()).parse() {
                 Some(Item::Vertex(v, _)) => self.vertices.push(v.into()),
                 Some(Item::VertexNormal(v)) => self.normals.push(v.into()),
                 Some(Item::VertexTexture(v)) => self.uv.push([v[0], v[1]].into()),
                 Some(Item::Face(face)) => self.process_face(face),
+                Some(Item::MtlLib(mtl_path)) => {
+                    for mtl in MtlLoader::default().parse(path, &mtl_path) {
+                        let texture = mtl.texture.as_ref().map(|name| self.lookup_texture(&name));
+                        self.materials.push(mtl);
+                        self.mesh.triangles.push(Vec::new());
+                        self.mesh.materials.push(mesh::Material { texture });
+                    }
+                }
+                Some(Item::UseMtl(material)) => {
+                    if let Some((idx, _)) = self
+                        .materials
+                        .iter()
+                        .enumerate()
+                        .find(|(_, m)| m.name == material)
+                    {
+                        self.current_material = idx;
+                    } else {
+                        eprintln!("missing material \"{material}\"");
+                    }
+                }
                 None => {}
             }
         }
-        self.triangles
+        self.mesh
     }
 }
 
-pub fn load_obj_file(path: &str) -> Vec<BarePrimitive> {
+pub fn load_obj_file(path: &str) -> Mesh {
     let f = BufReader::new(std::fs::File::open(path).unwrap());
-    ObjLoader::new().parse(f.lines())
-}
-
-#[test]
-fn foo() {
-    let f = BufReader::new(std::fs::File::open("/home/aiju/untitled.obj").unwrap());
-    let tris = ObjLoader::new().parse(f.lines());
-    println!("{tris:?}");
+    ObjLoader::new().parse(path, f.lines())
 }
