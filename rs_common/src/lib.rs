@@ -7,6 +7,9 @@ use geometry::{Matrix, Vec2, Vec3, Vec4};
 pub mod geometry;
 pub mod obj_loader;
 pub mod scene;
+pub mod mesh;
+pub mod render;
+pub mod assets;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;

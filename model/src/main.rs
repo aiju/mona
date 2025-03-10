@@ -1,10 +1,16 @@
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
 use clap::Parser;
-use rs_common::*;
+use rs_common::{
+    assets::AssetLoader,
+    render::{Backend, Context, Texture, TextureType},
+    *,
+};
 
 #[derive(Default, Debug)]
-struct Context {
+struct Stats {
     primitives: u64,
     coarse_tiles: u64,
     fine_tiles: u64,
@@ -18,14 +24,14 @@ struct Tile {
     edge_vec: [f64; 3],
 }
 
-fn coarse_raster(ctx: &mut Context, p: &CoarseRasterIn) -> Vec<Tile> {
-    ctx.primitives += 1;
+fn coarse_raster(stats: &mut Stats, p: &CoarseRasterIn) -> Vec<Tile> {
+    stats.primitives += 1;
     let mut tiles = Vec::new();
     let mut e_left = [0, 1, 2].map(|i| p.edge_mat[2][i]);
     for y in p.bbox.min_y..=p.bbox.max_y {
         let mut e = e_left;
         for x in p.bbox.min_x..=p.bbox.max_x {
-            ctx.coarse_tiles += 1;
+            stats.coarse_tiles += 1;
             let mut c = [[0.0; 3]; 4];
             for i in 0..3 {
                 c[0][i] = e[i];
@@ -35,7 +41,7 @@ fn coarse_raster(ctx: &mut Context, p: &CoarseRasterIn) -> Vec<Tile> {
             }
             let ok = (0..3).all(|j| (0..4).any(|i| c[i][j] >= 0.0));
             if ok {
-                ctx.fine_tiles += 1;
+                stats.fine_tiles += 1;
                 tiles.push(Tile {
                     pos: [x, y],
                     edge_vec: e,
@@ -53,12 +59,12 @@ fn coarse_raster(ctx: &mut Context, p: &CoarseRasterIn) -> Vec<Tile> {
 }
 
 fn fine_raster(
-    ctx: &mut Context,
+    stats: &mut Stats,
     p: &CoarseRasterIn,
     tile: &Tile,
     buffer: &mut [u32],
     depth: &mut [f64],
-    texture: &RgbImage,
+    texture: Option<&Texture>,
 ) {
     for oy in 0..TILE_SIZE {
         for ox in 0..TILE_SIZE {
@@ -71,54 +77,95 @@ fn fine_raster(
             if !inside {
                 continue;
             }
-            ctx.inside_pixels += 1;
+            stats.inside_pixels += 1;
             let wr = e[0] + e[1] + e[2];
             let depth_ptr = &mut depth[y * WIDTH + x];
             if wr <= *depth_ptr {
                 continue;
             }
             *depth_ptr = wr;
-            ctx.depth_pass_pixels += 1;
+            stats.depth_pass_pixels += 1;
             let u = (0..3).map(|i| p.uv[i][0] * e[i]).sum::<f64>() / wr;
             let v = (0..3).map(|i| p.uv[i][1] * e[i]).sum::<f64>() / wr;
-            let tx = ((u * (texture.width() as f64)) as u32).clamp(0, texture.width() - 1);
-            let ty = ((v * (texture.height() as f64)) as u32).clamp(0, texture.height() - 1);
-            let rgb = texture.get_pixel(tx, ty);
-            buffer[y * WIDTH + x] =
-                rgb.0[2] as u32 | (rgb.0[1] as u32) << 8 | (rgb.0[0] as u32) << 16;
+            let rgb = if let Some(texture) = texture {
+                let tx = ((u * (texture.ty.width as f64)) as usize).clamp(0, texture.ty.width - 1);
+                let ty =
+                    ((v * (texture.ty.height as f64)) as usize).clamp(0, texture.ty.height - 1);
+                let addr = (tx + ty * texture.ty.stride) * 4;
+                let d = &texture.data[addr..addr + 4];
+                [d[0], d[1], d[2]]
+            } else {
+                [255, 255, 255]
+            };
+            buffer[y * WIDTH + x] = rgb[2] as u32 | (rgb[1] as u32) << 8 | (rgb[0] as u32) << 16;
         }
     }
 }
 
-fn render_frame(
-    ctx: &mut Context,
-    primitives: &[BarePrimitive],
-    buffer: &mut [u32],
-    texture: &RgbImage,
-    show_bbox: bool,
-) {
-    buffer.fill(0);
-    let mut depth = [-f64::INFINITY; WIDTH * HEIGHT];
-    let data = primitives
-        .iter()
-        .flat_map(|p| CoarseRasterIn::new(&p))
-        .collect::<Vec<_>>();
-    for p in &data {
-        for tile in coarse_raster(ctx, p) {
-            fine_raster(ctx, &p, &tile, buffer, &mut depth, texture);
+struct ModelBackend {
+    texture: Option<Arc<Texture<'static>>>,
+    frame: Vec<u32>,
+    depth: Vec<f64>,
+    stats: Stats,
+}
+
+impl ModelBackend {
+    fn new() -> Self {
+        ModelBackend {
+            texture: None,
+            frame: vec![0; WIDTH * HEIGHT],
+            depth: vec![-f64::INFINITY; WIDTH * HEIGHT],
+            stats: Stats::default(),
         }
     }
-    if show_bbox {
-        for p in &data {
-            for x in p.bbox.min_x * TILE_SIZE..(p.bbox.max_x + 1) * TILE_SIZE {
-                buffer[p.bbox.min_y * TILE_SIZE * WIDTH + x] = 0xffffff;
-                buffer[((p.bbox.max_y + 1) * TILE_SIZE - 1) * WIDTH + x] = 0xffffff;
-            }
-            for y in p.bbox.min_y * TILE_SIZE..(p.bbox.max_y + 1) * TILE_SIZE {
-                buffer[p.bbox.min_x * TILE_SIZE + y * WIDTH] = 0xffffff;
-                buffer[((p.bbox.max_x + 1) * TILE_SIZE - 1) + y * WIDTH] = 0xffffff;
+    fn start_frame(&mut self) {
+        self.frame.fill(0);
+        self.depth.fill(-f64::INFINITY);
+        self.stats = Stats::default();
+    }
+}
+
+impl Backend for ModelBackend {
+    type Texture = Arc<Texture<'static>>;
+    type Error = ();
+
+    fn load_texture(&mut self, texture: Texture<'_>) -> Result<Self::Texture, Self::Error> {
+        Ok(Arc::new(Texture {
+            data: texture.data.into_owned().into(),
+            ty: texture.ty,
+        }))
+    }
+
+    fn use_texture(&mut self, texture: Option<&Self::Texture>) {
+        self.texture = texture.cloned();
+    }
+
+    fn draw(&mut self, triangles: &[CoarseRasterIn]) {
+        let ctx = &mut self.stats;
+        for p in triangles {
+            for tile in coarse_raster(ctx, p) {
+                fine_raster(
+                    ctx,
+                    &p,
+                    &tile,
+                    &mut self.frame,
+                    &mut self.depth,
+                    self.texture.as_deref(),
+                );
             }
         }
+        /*if show_bbox {
+            for p in &data {
+                for x in p.bbox.min_x * TILE_SIZE..(p.bbox.max_x + 1) * TILE_SIZE {
+                    buffer[p.bbox.min_y * TILE_SIZE * WIDTH + x] = 0xffffff;
+                    buffer[((p.bbox.max_y + 1) * TILE_SIZE - 1) * WIDTH + x] = 0xffffff;
+                }
+                for y in p.bbox.min_y * TILE_SIZE..(p.bbox.max_y + 1) * TILE_SIZE {
+                    buffer[p.bbox.min_x * TILE_SIZE + y * WIDTH] = 0xffffff;
+                    buffer[((p.bbox.max_x + 1) * TILE_SIZE - 1) + y * WIDTH] = 0xffffff;
+                }
+            }
+        }*/
     }
 }
 
@@ -136,15 +183,31 @@ struct Cli {
 use image::{ImageReader, RgbImage};
 use minifb::{Key, Window, WindowOptions};
 
+#[derive(Default)]
+struct ModelAssetLoader {}
+impl AssetLoader for ModelAssetLoader {
+    type Error = ();
+
+    fn load_texture(&mut self, name: &str) -> Result<Texture, Self::Error> {
+        let image = ImageReader::open("/home/aiju/cat.jpg")
+            .unwrap()
+            .decode()
+            .unwrap()
+            .into_rgba8()
+            .into_flat_samples();
+        Ok(Texture {
+            data: image.samples.into(),
+            ty: TextureType {
+                width: image.layout.width as usize,
+                height: image.layout.height as usize,
+                stride: image.layout.height_stride / 4,
+            },
+        })
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
-
-    let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
-    let texture = ImageReader::open("/home/aiju/cat.jpg")
-        .unwrap()
-        .decode()
-        .unwrap()
-        .into_rgb8();
 
     let mut window = Window::new(
         "Test - ESC to exit",
@@ -158,18 +221,19 @@ fn main() {
 
     window.set_target_fps(60);
 
-    let mut scene = scene::create(&cli.scene).expect(&format!("unknown scene {}", &cli.scene));
+    let mut context = Context::new(ModelBackend::new());
+    let mut scene = scene::create(&cli.scene, &mut context, ModelAssetLoader::default())
+        .expect(&format!("unknown scene {}", &cli.scene));
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let primitives = scene.prep();
-        let mut ctx = Context::default();
-        render_frame(&mut ctx, &primitives, &mut buffer, &texture, cli.show_bbox);
+        context.backend_mut().start_frame();
+        scene.render(&mut context);
         if cli.show_stats {
-            println!("{:?}", ctx);
+            println!("{:?}", context.backend().stats);
         }
-
-        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
-
+        window
+            .update_with_buffer(&context.backend().frame, WIDTH, HEIGHT)
+            .unwrap();
         scene.update(10.0 / 60.0);
     }
 }

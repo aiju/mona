@@ -1,19 +1,28 @@
-use crate::{geometry::Matrix, *};
+use crate::{
+    assets::AssetLoader,
+    geometry::Matrix,
+    render::{Backend, Context, TextureId},
+    *,
+};
 
-pub trait Scene {
-    fn prep(&mut self) -> Vec<BarePrimitive>;
-    fn update(&mut self, delta: f64);
+#[allow(unused_variables)]
+pub trait Scene<B: Backend> {
+    fn render(&mut self, context: &mut Context<B>);
+    fn update(&mut self, delta: f64) {}
 }
 
-pub fn create(spec: &str) -> Option<Box<dyn Scene>> {
+pub fn create<B: Backend>(
+    spec: &str,
+    context: &mut Context<B>,
+    loader: impl AssetLoader,
+) -> Option<Box<dyn Scene<B>>> {
     let (name, arg) = match spec.split_once(':') {
         Some((a, b)) => (a, Some(b)),
         None => (spec, None),
     };
     match (name, arg) {
-        ("Cube", None) => Some(Box::new(Cube::default())),
-        ("DoubleCube", None) => Some(Box::new(DoubleCube::default())),
-        ("CatRoom", None) => Some(Box::new(CatRoom::default())),
+        ("Cube", None) => Some(Box::new(Cube::new(context, loader))),
+        ("CatRoom", None) => Some(Box::new(CatRoom::new(context, loader))),
         ("Obj", Some(path)) => Some(Box::new(ObjScene::new(path))),
         ("Sphere", None) => Some(Box::new(Sphere::default())),
         _ => None,
@@ -83,72 +92,61 @@ const CUBE: &'static [[[f64; 5]; 3]] = &[
     ],
 ];
 
-#[derive(Default)]
 pub struct Cube {
+    texture: TextureId,
     time: f64,
 }
 
-impl Scene for Cube {
-    fn prep(&mut self) -> Vec<BarePrimitive> {
+impl Cube {
+    fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader) -> Cube {
+        let image = loader.load_texture("cat").unwrap();
+        let texture = context.load_texture(image).unwrap();
+        Cube { texture, time: 0.0 }
+    }
+}
+
+impl<B: Backend> Scene<B> for Cube {
+    fn render(&mut self, context: &mut Context<B>) {
         let matrix = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::translate(0.0, -0.0, 3.0)
             * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
-        CUBE.iter()
+        let v: Vec<_> = CUBE
+            .iter()
             .map(|v| BarePrimitive::new(*v))
             .map(move |p| p.transform(matrix))
-            .collect()
+            .collect();
+        context.draw().textured(self.texture).run(&v);
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;
     }
 }
 
-#[derive(Default)]
-pub struct DoubleCube {
-    time: f64,
-}
-
-impl Scene for DoubleCube {
-    fn prep(&mut self) -> Vec<BarePrimitive> {
-        let mut tri = Vec::new();
-        for y in 0..4 {
-            for x in 0..4 {
-                let matrix = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
-                    * Matrix::translate((x as f64 - 1.5) * 3.0, (y as f64 - 1.5) * 3.0, 8.0)
-                    * Matrix::rotate(
-                        (x as f64 - 1.5).signum() * 30.0 * self.time,
-                        [0.0, 1.0, 0.0],
-                    );
-                tri.extend(
-                    CUBE.iter()
-                        .map(|v| BarePrimitive::new(*v))
-                        .map(move |p| p.transform(matrix)),
-                );
-            }
-        }
-        tri
-    }
-    fn update(&mut self, delta: f64) {
-        self.time += delta;
-    }
-}
-
-#[derive(Default)]
 pub struct CatRoom {
+    texture: TextureId,
     time: f64,
 }
 
-impl Scene for CatRoom {
-    fn prep(&mut self) -> Vec<BarePrimitive> {
+impl CatRoom {
+    fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader) -> CatRoom {
+        let image = loader.load_texture("cat").unwrap();
+        let texture = context.load_texture(image).unwrap();
+        CatRoom { texture, time: 0.0 }
+    }
+}
+
+impl<B: Backend> Scene<B> for CatRoom {
+    fn render(&mut self, context: &mut Context<B>) {
         let matrix = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::translate(0.0, -1.0, 3.0)
             * Matrix::rotate(-20.0, [1.0, 0.0, 0.0])
             * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
-        include!("cat_room.rs")
+        let v: Vec<_> = include!("cat_room.rs")
             .iter()
             .map(|v| BarePrimitive::new(*v))
             .map(move |p| p.transform(matrix))
-            .collect()
+            .collect();
+        context.draw().textured(self.texture).run(&v);
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;
@@ -170,19 +168,21 @@ impl ObjScene {
     }
 }
 
-impl Scene for ObjScene {
-    fn prep(&mut self) -> Vec<BarePrimitive> {
+impl<B: Backend> Scene<B> for ObjScene {
+    fn render(&mut self, context: &mut Context<B>) {
         let object = Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::translate(0.0, -2.0, 5.0);
-        self.model
+        let v: Vec<_> = self
+            .model
             .iter()
             .map(move |p| {
                 p.transform(object)
                     .lighting(0.3, 0.3, [0.707, 0.0, -0.707].into())
                     .transform(view)
             })
-            .collect()
+            .collect();
+        context.draw().run(&v);
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;
@@ -194,8 +194,8 @@ pub struct Sphere {
     time: f64,
 }
 
-impl Scene for Sphere {
-    fn prep(&mut self) -> Vec<BarePrimitive> {
+impl<B: Backend> Scene<B> for Sphere {
+    fn render(&mut self, context: &mut Context<B>) {
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::translate(0.0, 0.0, 3.0);
         let theta_steps = 16;
@@ -233,7 +233,8 @@ impl Scene for Sphere {
                 t.rgb[i] = ((l * 255.0) as u32) * 0x10101;
             }
         }
-        tris.iter().map(|p| p.transform(view)).collect()
+        let v: Vec<_> = tris.iter().map(|p| p.transform(view)).collect();
+        context.draw().run(&v);
     }
     fn update(&mut self, delta: f64) {
         self.time += delta;

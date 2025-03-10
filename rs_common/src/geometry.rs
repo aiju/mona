@@ -70,7 +70,7 @@ impl std::ops::Deref for Vec2 {
     type Target = [f64; 2];
 
     fn deref(&self) -> &Self::Target {
-        unsafe { std::mem::transmute::<&Vec2, &[f64; 2]>(self) }
+        unsafe { &*std::ptr::from_ref(self).cast() }
     }
 }
 
@@ -78,7 +78,7 @@ impl std::ops::Deref for Vec3 {
     type Target = [f64; 3];
 
     fn deref(&self) -> &Self::Target {
-        unsafe { std::mem::transmute::<&Vec3, &[f64; 3]>(self) }
+        unsafe { &*std::ptr::from_ref(self).cast() }
     }
 }
 
@@ -86,7 +86,7 @@ impl std::ops::Deref for Vec4 {
     type Target = [f64; 4];
 
     fn deref(&self) -> &Self::Target {
-        unsafe { std::mem::transmute::<&Vec4, &[f64; 4]>(self) }
+        unsafe { &*std::ptr::from_ref(self).cast() }
     }
 }
 
