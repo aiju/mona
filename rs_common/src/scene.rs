@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{geometry::Matrix, *};
 
 pub trait Scene {
     fn prep(&mut self) -> Vec<BarePrimitive>;
@@ -90,11 +90,9 @@ pub struct Cube {
 
 impl Scene for Cube {
     fn prep(&mut self) -> Vec<BarePrimitive> {
-        let matrix = matmul(&[
-            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-            translate(0.0, -0.0, 3.0),
-            rotate(30.0 * self.time, [0.0, 1.0, 0.0]),
-        ]);
+        let matrix = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+            * Matrix::translate(0.0, -0.0, 3.0)
+            * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
         CUBE.iter()
             .map(|v| BarePrimitive::new(*v))
             .map(move |p| p.transform(matrix))
@@ -115,14 +113,12 @@ impl Scene for DoubleCube {
         let mut tri = Vec::new();
         for y in 0..4 {
             for x in 0..4 {
-                let matrix = matmul(&[
-                    projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-                    translate((x as f64 - 1.5) * 3.0, (y as f64 - 1.5) * 3.0, 8.0),
-                    rotate(
+                let matrix = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+                    * Matrix::translate((x as f64 - 1.5) * 3.0, (y as f64 - 1.5) * 3.0, 8.0)
+                    * Matrix::rotate(
                         (x as f64 - 1.5).signum() * 30.0 * self.time,
                         [0.0, 1.0, 0.0],
-                    ),
-                ]);
+                    );
                 tri.extend(
                     CUBE.iter()
                         .map(|v| BarePrimitive::new(*v))
@@ -144,12 +140,10 @@ pub struct CatRoom {
 
 impl Scene for CatRoom {
     fn prep(&mut self) -> Vec<BarePrimitive> {
-        let matrix = matmul(&[
-            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-            translate(0.0, -1.0, 3.0),
-            rotate(-20.0, [1.0, 0.0, 0.0]),
-            rotate(30.0 * self.time, [0.0, 1.0, 0.0]),
-        ]);
+        let matrix = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+            * Matrix::translate(0.0, -1.0, 3.0)
+            * Matrix::rotate(-20.0, [1.0, 0.0, 0.0])
+            * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
         include!("cat_room.rs")
             .iter()
             .map(|v| BarePrimitive::new(*v))
@@ -178,16 +172,14 @@ impl ObjScene {
 
 impl Scene for ObjScene {
     fn prep(&mut self) -> Vec<BarePrimitive> {
-        let object = rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
-        let view = matmul(&[
-            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-            translate(0.0, -2.0, 5.0),
-        ]);
+        let object = Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
+        let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+            * Matrix::translate(0.0, -2.0, 5.0);
         self.model
             .iter()
             .map(move |p| {
                 p.transform(object)
-                    .lighting(0.3, 0.3, [0.707, 0.0, -0.707])
+                    .lighting(0.3, 0.3, [0.707, 0.0, -0.707].into())
                     .transform(view)
             })
             .collect()
@@ -204,10 +196,8 @@ pub struct Sphere {
 
 impl Scene for Sphere {
     fn prep(&mut self) -> Vec<BarePrimitive> {
-        let view = matmul(&[
-            projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0),
-            translate(0.0, 0.0, 3.0),
-        ]);
+        let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+            * Matrix::translate(0.0, 0.0, 3.0);
         let theta_steps = 16;
         let phi_steps = 16;
         let coord = |i: i32, j: i32| {
@@ -216,29 +206,29 @@ impl Scene for Sphere {
             let x = phi.cos() * theta.sin();
             let y = phi.sin() * theta.sin();
             let z = theta.cos();
-            [x, y, z, 1.0]
+            [x, y, z, 1.0].into()
         };
         let mut tris = Vec::new();
         for i in 0..theta_steps {
             for j in 0..phi_steps {
                 tris.push(BarePrimitive {
                     vertices: [coord(i, j), coord(i + 1, j), coord(i + 1, j + 1)],
-                    uv: [[0.0; 2]; 3],
+                    uv: [Vec2::default(); 3],
                     rgb: [!0; 3],
                 });
                 tris.push(BarePrimitive {
                     vertices: [coord(i, j), coord(i + 1, j + 1), coord(i, j + 1)],
-                    uv: [[0.0; 2]; 3],
+                    uv: [Vec2::default(); 3],
                     rgb: [!0; 3],
                 });
             }
         }
         for t in &mut tris {
             for i in 0..3 {
-                let normal = xyz(t.vertices[i]);
+                let normal = t.vertices[i].xyz();
                 let tt = self.time;
-                let direction = [tt.cos(), 0.0, -tt.sin()];
-                let s = dot(normal, direction).clamp(0.0, 1.0);
+                let direction = [tt.cos(), 0.0, -tt.sin()].into();
+                let s = (normal * direction).clamp(0.0, 1.0);
                 let l = 0.3 + 0.3 * s + 0.3 * s * s * s;
                 t.rgb[i] = ((l * 255.0) as u32) * 0x10101;
             }

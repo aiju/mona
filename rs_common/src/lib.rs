@@ -2,6 +2,9 @@
 
 use std::f64::consts::PI;
 
+use geometry::{Matrix, Vec2, Vec3, Vec4};
+
+pub mod geometry;
 pub mod obj_loader;
 pub mod scene;
 
@@ -72,133 +75,10 @@ pub const CUBE: &'static [[[f64; 5]; 3]] = &[
     ],
 ];
 
-pub type Matrix = [[f64; 4]; 4];
-
-pub fn rotate(angle: f64, axis: [f64; 3]) -> Matrix {
-    let c = (angle * PI / 180.0).cos();
-    let s = (angle * PI / 180.0).sin();
-    let t = 1.0 - c;
-    let n = f64::hypot(axis[0], f64::hypot(axis[1], axis[2]));
-    let x = axis[0] / n;
-    let y = axis[1] / n;
-    let z = axis[2] / n;
-    [
-        [t * x * x + c, t * x * y - s * z, t * x * z + s * y, 0.0],
-        [t * x * y + s * z, t * y * y + c, t * y * z - s * x, 0.0],
-        [t * x * z - s * y, t * y * z + s * x, t * z * z + c, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-pub fn translate(x: f64, y: f64, z: f64) -> Matrix {
-    [
-        [1.0, 0.0, 0.0, x],
-        [0.0, 1.0, 0.0, y],
-        [0.0, 0.0, 1.0, z],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-pub fn projection(fov_y: f64, width: f64, height: f64, near: f64, far: f64) -> Matrix {
-    let f = (fov_y / 2.0 * PI / 180.0).tan();
-    [
-        [width / (2.0 * f), 0.0, width / 2.0, 0.0],
-        [0.0, -width / (2.0 * f), height / 2.0, 0.0],
-        [0.0, 0.0, far / (near - far), far * near / (near - far)],
-        [0.0, 0.0, 1.0, 0.0],
-    ]
-}
-
-pub fn matmul(args: &[Matrix]) -> Matrix {
-    args.iter()
-        .copied()
-        .reduce(|m, n| {
-            let mut r = [[0.0; 4]; 4];
-            for i in 0..4 {
-                for j in 0..4 {
-                    for k in 0..4 {
-                        r[i][j] += m[i][k] * n[k][j];
-                    }
-                }
-            }
-            r
-        })
-        .unwrap_or([
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ])
-}
-
-pub fn matmulv(m: Matrix, p: [f64; 4]) -> [f64; 4] {
-    let x = m[0][0] * p[0] + m[0][1] * p[1] + m[0][2] * p[2] + m[0][3] * p[3];
-    let y = m[1][0] * p[0] + m[1][1] * p[1] + m[1][2] * p[2] + m[1][3] * p[3];
-    let z = m[2][0] * p[0] + m[2][1] * p[1] + m[2][2] * p[2] + m[2][3] * p[3];
-    let w = m[3][0] * p[0] + m[3][1] * p[1] + m[3][2] * p[2] + m[3][3] * p[3];
-    [x, y, z, w]
-}
-
-fn project(p: [f64; 4]) -> [f64; 4] {
-    let [x, y, z, w] = p;
-    [x / w, y / w, z / w, 1.0 / w]
-}
-
-fn clip_line(a: [f64; 4], b: [f64; 4], c: [f64; 4]) -> f64 {
-    (c[0] * b[0] + c[1] * b[1] + c[2] * b[2] + c[3] * b[3])
-        / (c[0] * (b[0] - a[0])
-            + c[1] * (b[1] - a[1])
-            + c[2] * (b[2] - a[2])
-            + c[3] * (b[3] - a[3]))
-}
-
-fn lerp4(a: [f64; 4], b: [f64; 4], l: f64) -> [f64; 4] {
-    [
-        a[0] * l + b[0] * (1.0 - l),
-        a[1] * l + b[1] * (1.0 - l),
-        a[2] * l + b[2] * (1.0 - l),
-        a[3] * l + b[3] * (1.0 - l),
-    ]
-}
-
-fn lerp2(a: [f64; 2], b: [f64; 2], l: f64) -> [f64; 2] {
-    [a[0] * l + b[0] * (1.0 - l), a[1] * l + b[1] * (1.0 - l)]
-}
-
-pub fn xyz(a: [f64; 4]) -> [f64; 3] {
-    [a[0], a[1], a[2]]
-}
-
-pub fn vec_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-pub fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-pub fn normalize(a: [f64; 3]) -> [f64; 3] {
-    let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
-    if l < 1e-20 {
-        [0.0, 0.0, 0.0]
-    } else {
-        let l = 1.0 / l;
-        [a[0] * l, a[1] * l, a[2] * l]
-    }
-}
-
-pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
 #[derive(Debug, Clone)]
 pub struct BarePrimitive {
-    pub vertices: [[f64; 4]; 3],
-    pub uv: [[f64; 2]; 3],
+    pub vertices: [Vec4; 3],
+    pub uv: [Vec2; 3],
     pub rgb: [u32; 3],
 }
 
@@ -210,35 +90,37 @@ pub struct BBox {
     pub max_y: usize,
 }
 
+fn clip_line(a: Vec4, b: Vec4, c: Vec4) -> f64 {
+    (c[0] * b[0] + c[1] * b[1] + c[2] * b[2] + c[3] * b[3])
+        / (c[0] * (b[0] - a[0])
+            + c[1] * (b[1] - a[1])
+            + c[2] * (b[2] - a[2])
+            + c[3] * (b[3] - a[3]))
+}
+
 impl BarePrimitive {
     pub fn new(data: [[f64; 5]; 3]) -> Self {
-        let vertices = data.map(|d| [d[0], d[1], d[2], 1.0]);
-        let uv = data.map(|d| [d[3], d[4]]);
+        let vertices = data.map(|d| [d[0], d[1], d[2], 1.0].into());
+        let uv = data.map(|d| [d[3], d[4]].into());
         let rgb = [!0; 3];
         BarePrimitive { vertices, uv, rgb }
     }
     pub fn transform(&self, matrix: Matrix) -> Self {
         BarePrimitive {
-            vertices: self.vertices.map(|v| matmulv(matrix, v)),
+            vertices: self.vertices.map(|v| matrix * v),
             ..self.clone()
         }
     }
-    fn clip_corner(
-        &self,
-        i: usize,
-        j: usize,
-        k: usize,
-        plane: [f64; 4],
-    ) -> ([f64; 4], [f64; 2], [f64; 4], [f64; 2]) {
+    fn clip_corner(&self, i: usize, j: usize, k: usize, plane: Vec4) -> (Vec4, Vec2, Vec4, Vec2) {
         let a = clip_line(self.vertices[i], self.vertices[j], plane);
         let b = clip_line(self.vertices[i], self.vertices[k], plane);
-        let va = lerp4(self.vertices[i], self.vertices[j], a);
-        let uva = lerp2(self.uv[i], self.uv[j], a);
-        let vb = lerp4(self.vertices[i], self.vertices[k], b);
-        let uvb = lerp2(self.uv[i], self.uv[k], b);
+        let va = self.vertices[i].lerp(self.vertices[j], a);
+        let uva = self.uv[i].lerp(self.uv[j], a);
+        let vb = self.vertices[i].lerp(self.vertices[k], b);
+        let uvb = self.uv[i].lerp(self.uv[k], b);
         (va, uva, vb, uvb)
     }
-    fn clip(&self, plane: [f64; 4]) -> Vec<Self> {
+    fn clip(&self, plane: Vec4) -> Vec<Self> {
         let mut clipcode: u8 = 0;
         for i in 0..3 {
             if (0..4).map(|j| self.vertices[i][j] * plane[j]).sum::<f64>() > 0.0 {
@@ -285,14 +167,14 @@ impl BarePrimitive {
     }
     fn project(&self) -> Self {
         BarePrimitive {
-            vertices: self.vertices.map(project),
+            vertices: self.vertices.map(Vec4::project),
             ..self.clone()
         }
     }
     fn edge_mat(&self) -> Option<[[f64; 3]; 3]> {
-        let [x0, y0, _, w0] = self.vertices[0];
-        let [x1, y1, _, w1] = self.vertices[1];
-        let [x2, y2, _, w2] = self.vertices[2];
+        let [x0, y0, _, w0] = *self.vertices[0];
+        let [x1, y1, _, w1] = *self.vertices[1];
+        let [x2, y2, _, w2] = *self.vertices[2];
         let mut d = x0 * y1 * w2 + y0 * w1 * x2 + w0 * x1 * y2;
         d -= x0 * w1 * y2 + y0 * x1 * w2 + w0 * y1 * x2;
         if d.abs() < 1e-9 {
@@ -370,15 +252,13 @@ impl BarePrimitive {
             max_y: (y1 / TILE_SIZE as f64).clamp(0.0, ((HEIGHT - 1) / TILE_SIZE) as f64) as usize,
         })
     }
-    fn lighting(&self, ambient: f64, diffuse: f64, direction: [f64; 3]) -> Self {
-        let l = dot(
-            direction,
-            normalize(cross(
-                vec_sub(xyz(self.vertices[0]), xyz(self.vertices[1])),
-                vec_sub(xyz(self.vertices[0]), xyz(self.vertices[2])),
-            )),
+    fn lighting(&self, ambient: f64, diffuse: f64, direction: Vec3) -> Self {
+        let normal = Vec3::cross(
+            self.vertices[0].xyz() - self.vertices[1].xyz(),
+            self.vertices[0].xyz() - self.vertices[2].xyz(),
         )
-        .clamp(0.0, 1.0);
+        .normalize();
+        let l = (direction * normal).clamp(0.0, 1.0);
         let ll = (ambient + l * diffuse).clamp(0.0, 1.0);
         Self {
             rgb: [((ll * 255.0) as u32) * 0x10101; 3],
@@ -405,7 +285,7 @@ impl CoarseRasterIn {
         }
         Some(CoarseRasterIn {
             edge_mat,
-            uv: p.uv,
+            uv: p.uv.map(|x| *x),
             rgb: p.rgb,
             bbox,
         })

@@ -6,7 +6,10 @@ use std::{
     str::Chars,
 };
 
-use crate::BarePrimitive;
+use crate::{
+    BarePrimitive,
+    geometry::{Vec2, Vec3},
+};
 
 struct ItemParser<'a> {
     iter: Peekable<Chars<'a>>,
@@ -134,9 +137,9 @@ impl<'a> ItemParser<'a> {
 }
 
 pub struct ObjLoader {
-    vertices: Vec<[f64; 3]>,
-    normals: Vec<[f64; 3]>,
-    uv: Vec<[f64; 2]>,
+    vertices: Vec<Vec3>,
+    normals: Vec<Vec3>,
+    uv: Vec<Vec2>,
     triangles: Vec<BarePrimitive>,
 }
 
@@ -149,7 +152,7 @@ impl ObjLoader {
             triangles: Vec::new(),
         }
     }
-    fn lookup_vertex(&mut self, n: isize) -> [f64; 3] {
+    fn lookup_vertex(&mut self, n: isize) -> Vec3 {
         assert!(n != 0);
         if n > 0 {
             return self.vertices[(n - 1) as usize];
@@ -157,7 +160,7 @@ impl ObjLoader {
             return self.vertices[self.vertices.len() - (-n) as usize];
         }
     }
-    fn lookup_normal(&mut self, n: isize) -> [f64; 3] {
+    fn lookup_normal(&mut self, n: isize) -> Vec3 {
         assert!(n != 0);
         if n > 0 {
             return self.normals[(n - 1) as usize];
@@ -165,7 +168,7 @@ impl ObjLoader {
             return self.normals[self.normals.len() - (-n) as usize];
         }
     }
-    fn lookup_uv(&mut self, n: isize) -> [f64; 2] {
+    fn lookup_uv(&mut self, n: isize) -> Vec2 {
         assert!(n != 0);
         if n > 0 {
             return self.uv[(n - 1) as usize];
@@ -174,13 +177,13 @@ impl ObjLoader {
         }
     }
     fn process_triangle(&mut self, vert: [(isize, Option<isize>, Option<isize>); 3]) {
-        let v = vert.map(|(v, _, _)| {
-            let mut c = [0.0, 0.0, 0.0, 1.0];
-            c[0..3].copy_from_slice(&self.lookup_vertex(v));
-            c
+        let v = vert.map(|(v, _, _)| self.lookup_vertex(v).into());
+        let t = vert.map(|(_, t, _)| t.map(|t| self.lookup_uv(t)).unwrap_or_default());
+        self.triangles.push(BarePrimitive {
+            vertices: v,
+            uv: t,
+            rgb: [!0; 3],
         });
-        let t = vert.map(|(_, t, _)| t.map(|t| self.lookup_uv(t)).unwrap_or([0.0, 0.0]));
-        self.triangles.push(BarePrimitive { vertices: v, uv: t, rgb: [!0; 3] });
     }
     pub fn process_face(&mut self, face: Vec<(isize, Option<isize>, Option<isize>)>) {
         assert!(face.len() == 3 || face.len() == 4);
@@ -194,9 +197,9 @@ impl ObjLoader {
     pub fn parse<T: BufRead>(mut self, lines: Lines<T>) -> Vec<BarePrimitive> {
         for line in lines {
             match ItemParser::new(&line.unwrap()).parse() {
-                Some(Item::Vertex(v, _)) => self.vertices.push(v),
-                Some(Item::VertexNormal(v)) => self.normals.push(v),
-                Some(Item::VertexTexture(v)) => self.uv.push(v.try_into().unwrap()),
+                Some(Item::Vertex(v, _)) => self.vertices.push(v.into()),
+                Some(Item::VertexNormal(v)) => self.normals.push(v.into()),
+                Some(Item::VertexTexture(v)) => self.uv.push([v[0], v[1]].into()),
                 Some(Item::Face(face)) => self.process_face(face),
                 None => {}
             }
