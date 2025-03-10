@@ -51,10 +51,12 @@ struct HwBackend {
     cli: Cli,
     render_fb: u32,
     display_fb: u32,
+    depth_buffer: u32,
     cmd_ptr: u32,
     cmd_len: u32,
     stats_collection: StatsCollection,
     text_display: TextDisplay,
+    vram_alloc: VramAlloc,
     frame_start: Instant,
 }
 
@@ -74,18 +76,28 @@ impl HwBackend {
     fn new(mut hw: Hw, cli: Cli) -> HwBackend {
         hw.set_reg(R_DEPTH_MODE, if cli.disable_depth_buffer { 0 } else { 4 });
         hw.set_reg(R_STATS_ENABLED, 0);
+        let mut vram_alloc = VramAlloc::new(MEM_START as usize, MEM_LEN as usize);
+        // FIXME: don't statically allocate command buffer
+        vram_alloc.reserve(0x10200000, 1024 * 1024);
+        let render_fb = vram_alloc.alloc(WIDTH * HEIGHT * 4).unwrap();
+        let display_fb = vram_alloc.alloc(WIDTH * HEIGHT * 4).unwrap();
+        // FIXME: don't reserve so much depth buffer
+        let depth_buffer = vram_alloc.alloc(2048 * 256 * 4).unwrap();
+        hw.set_reg(R_DEPTH_BUFFER, depth_buffer);
         let stats_collection = StatsCollection::new();
         let mut text_display = TextDisplay::new();
         text_display.init(&mut hw);
         HwBackend {
             hw,
             cli,
-            render_fb: FRAMEBUFFER1,
-            display_fb: FRAMEBUFFER2,
+            render_fb,
+            display_fb,
+            depth_buffer,
             cmd_ptr: 0,
             cmd_len: 0,
             stats_collection,
             text_display,
+            vram_alloc,
             frame_start: Instant::now(),
         }
     }
@@ -102,7 +114,7 @@ impl HwBackend {
         let prep_done = Instant::now();
 
         hw.clear(self.render_fb, 640, 640, 480, 0x66666666u32);
-        hw.clear(DEPTHBUFFER, 2048, 2048, 256, 0);
+        hw.clear(self.depth_buffer, 2048, 2048, 256, 0);
         hw.set_reg(R_CONTROL, B_CONTROL_INVALIDATE_DEPTH);
 
         let clear_done = Instant::now();
@@ -144,6 +156,17 @@ impl HwBackend {
     }
 }
 
+fn translate_texture_type(ty: &render::TextureType) -> Option<u32> {
+    let f = |x: usize| {
+        if x & (x - 1) != 0 || x < 8 || x > 1024 {
+            None
+        } else {
+            Some(x.trailing_zeros() - 3)
+        }
+    };
+    Some(1 | f(ty.width)? << 4 | f(ty.height)? << 8 | f(ty.stride)? << 12)
+}
+
 impl Backend for HwBackend {
     type Texture = (u32, u32);
     type Error = ();
@@ -152,9 +175,12 @@ impl Backend for HwBackend {
         if self.cli.textures_off {
             Ok((0, 0))
         } else {
-            self.mem_mut(TEXTUREBUFFER, 512 * 512 * 4)
+            let en = translate_texture_type(&texture.ty).unwrap();
+            let size = texture.ty.stride * texture.ty.height * 4;
+            let vram = self.vram_alloc.alloc(size).unwrap();
+            self.mem_mut(vram, size as u32)
                 .copy_from_slice(&texture.data);
-            Ok((TEXTUREBUFFER, 0x6661))
+            Ok((vram, en))
         }
     }
 
@@ -180,7 +206,7 @@ impl Backend for HwBackend {
 struct DriverAssetLoader {}
 impl AssetLoader for DriverAssetLoader {
     type Error = ();
-    fn load_texture(&mut self, name: &str) -> Result<render::Texture, Self::Error> {
+    fn load_texture(&mut self, _name: &str) -> Result<render::Texture, Self::Error> {
         let mut data = Vec::with_capacity(512 * 512 * 4);
         File::open("texture.raw")
             .unwrap()

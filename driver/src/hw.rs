@@ -25,6 +25,7 @@ pub const B_CONTROL_FLUSH: u32 = 2;
 pub const B_CONTROL_INVALIDATE_DEPTH: u32 = 4;
 pub const B_CONTROL_CLEAR: u32 = 8;
 
+pub const R_DEPTH_BUFFER: u32 = 0x010;
 pub const R_DEPTH_MODE: u32 = 0x014;
 pub const R_CLEAR_ADDR: u32 = 0x018;
 pub const R_CLEAR_STRIDE: u32 = 0x01C;
@@ -42,12 +43,6 @@ pub const R_TEXT_ACCESS: u32 = 0x084;
 pub const B_TEXT_ACCESS_FONT: u32 = 3 << 30;
 pub const B_TEXT_ACCESS_TEXT: u32 = 2 << 30;
 pub const R_TEXT_TRANSPARENT: u32 = 0x088;
-
-pub const FRAMEBUFFER1: u32 = MEM_START;
-pub const FRAMEBUFFER2: u32 = MEM_START + 4 * 1048576;
-pub const TEXTUREBUFFER: u32 = MEM_START + 6 * 1048576;
-
-pub const DEPTHBUFFER: u32 = MEM_START + 8 * 1048576;
 
 pub struct Hw {
     file: File,
@@ -139,5 +134,50 @@ impl Hw {
             std::thread::yield_now();
         }
         self.set_reg(R_STATUS, B_STATUS_SEEN_VSYNC);
+    }
+}
+
+#[derive(Debug)]
+pub struct VramAlloc {
+    free: Vec<(usize, usize)>
+}
+
+impl VramAlloc {
+    pub fn new(start: usize, len: usize) -> Self {
+        Self {
+            free: vec![(start, len)]
+        }
+    }
+    pub fn alloc(&mut self, len: usize) -> Option<u32> {
+        for i in 0..self.free.len() {
+            let (r_start, r_len) = &mut self.free[i];
+            if len <= *r_len {
+                let ret = *r_start;
+                *r_start += len;
+                *r_len -= len;
+                if *r_len == 0 {
+                    self.free.remove(i);
+                }
+                return Some(ret as u32);
+            }
+        }
+        return None;
+    }
+    pub fn reserve(&mut self, start: usize, len: usize) {
+        let end = start + len;
+        self.free = self.free.iter().copied().flat_map(|(r_start, r_len)| {
+            let r_end = r_start + r_len;
+            if r_start >= end || r_end < start {
+                vec![(r_start, r_len)]
+            } else if start <= r_start && end >= r_end {
+                vec![]
+            } else if start <= r_start && r_start < end && end < r_end {
+                vec![(end, r_end - end)]
+            } else if r_start < start && start < r_end && r_end <= end {
+                vec![(r_start, start - r_start)]
+            } else {
+                vec![(r_start, start - r_start), (end, r_end - end)]
+            }
+        }).collect();
     }
 }

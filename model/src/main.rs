@@ -180,7 +180,7 @@ struct Cli {
     scene: String,
 }
 
-use image::{ImageReader, RgbImage};
+use image::ImageReader;
 use minifb::{Key, Window, WindowOptions};
 
 #[derive(Default)]
@@ -188,7 +188,7 @@ struct ModelAssetLoader {}
 impl AssetLoader for ModelAssetLoader {
     type Error = ();
 
-    fn load_texture(&mut self, name: &str) -> Result<Texture, Self::Error> {
+    fn load_texture(&mut self, _name: &str) -> Result<Texture, Self::Error> {
         let image = ImageReader::open("/home/aiju/cat.jpg")
             .unwrap()
             .decode()
