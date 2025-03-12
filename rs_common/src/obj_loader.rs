@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     geometry::{Vec2, Vec3},
-    mesh::{self, Mesh},
+    mesh::{self, Color, Mesh},
 };
 
 struct ItemParser<'a> {
@@ -30,6 +30,7 @@ enum Item {
 enum MtlItem {
     NewMtl(String),
     MapKd(String),
+    Kd([f64; 3]),
 }
 
 impl<'a> ItemParser<'a> {
@@ -141,6 +142,13 @@ impl<'a> ItemParser<'a> {
         self.eol();
         MtlItem::NewMtl(name)
     }
+    fn kd(&mut self) -> MtlItem {
+        let r = self.float();
+        let g = self.float();
+        let b = self.float();
+        self.eol();
+        MtlItem::Kd([r, g, b])
+    }
     fn map_kd(&mut self) -> MtlItem {
         let name = self.field();
         self.eol();
@@ -155,6 +163,7 @@ impl<'a> ItemParser<'a> {
                 "f" => self.face(),
                 "usemtl" => self.usemtl(),
                 "mtllib" => self.mtllib(),
+                "s" | "o" => return None,
                 _ => {
                     eprint!("obj parser: skipping unknown item \"{ty}\"\n");
                     return None;
@@ -169,7 +178,9 @@ impl<'a> ItemParser<'a> {
         if let Some(ty) = self.opt_field() {
             Some(match ty.as_str() {
                 "newmtl" => self.newmtl(),
+                "Kd" => self.kd(),
                 "map_Kd" => self.map_kd(),
+                "illum" | "Ni" | "Ns" | "Ka" | "Ks" | "Ke" | "d" => return None,
                 _ => {
                     eprint!("obj parser: skipping unknown mtl item \"{ty}\"\n");
                     return None;
@@ -184,6 +195,7 @@ impl<'a> ItemParser<'a> {
 
 pub struct Material {
     name: String,
+    kd: [f64; 3],
     texture: Option<String>,
 }
 
@@ -193,6 +205,9 @@ pub struct MtlLoader {
 }
 
 impl MtlLoader {
+    fn current(&mut self) -> &mut Material {
+        self.materials.last_mut().unwrap()
+    }
     pub fn parse(mut self, obj_path: &str, path: &str) -> Vec<Material> {
         let p = Path::new(obj_path).parent().unwrap().join(path);
         let f = BufReader::new(std::fs::File::open(p).unwrap());
@@ -200,11 +215,11 @@ impl MtlLoader {
             match ItemParser::new(&line.unwrap()).mtl_parse() {
                 Some(MtlItem::NewMtl(name)) => self.materials.push(Material {
                     name,
+                    kd: [1.0; 3],
                     texture: None,
                 }),
-                Some(MtlItem::MapKd(name)) => {
-                    self.materials.last_mut().unwrap().texture = Some(name)
-                }
+                Some(MtlItem::Kd(value)) => self.current().kd = value,
+                Some(MtlItem::MapKd(name)) => self.current().texture = Some(name),
                 None => {}
             }
         }
@@ -225,7 +240,10 @@ impl ObjLoader {
     pub fn new() -> Self {
         let mut mesh = Mesh::default();
         mesh.triangles.push(vec![]);
-        mesh.materials.push(mesh::Material { texture: None });
+        mesh.materials.push(mesh::Material {
+            texture: None,
+            color: Color::WHITE,
+        });
         ObjLoader {
             vertices: Vec::new(),
             normals: Vec::new(),
@@ -233,6 +251,7 @@ impl ObjLoader {
             mesh,
             materials: vec![Material {
                 name: "default".into(),
+                kd: [1.0; 3],
                 texture: None,
             }],
             current_material: 0,
@@ -280,7 +299,7 @@ impl ObjLoader {
         self.mesh.triangles[self.current_material].push(mesh::Triangle {
             vertices: v,
             uv: t,
-            rgb: [!0; 3],
+            color: [self.materials[self.current_material].kd.into(); 3],
         });
     }
     pub fn process_face(&mut self, face: Vec<(isize, Option<isize>, Option<isize>)>) {
@@ -302,9 +321,10 @@ impl ObjLoader {
                 Some(Item::MtlLib(mtl_path)) => {
                     for mtl in MtlLoader::default().parse(path, &mtl_path) {
                         let texture = mtl.texture.as_ref().map(|name| self.lookup_texture(&name));
+                        let color = mtl.kd.into();
                         self.materials.push(mtl);
                         self.mesh.triangles.push(Vec::new());
-                        self.mesh.materials.push(mesh::Material { texture });
+                        self.mesh.materials.push(mesh::Material { texture, color });
                     }
                 }
                 Some(Item::UseMtl(material)) => {

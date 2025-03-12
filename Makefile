@@ -31,4 +31,4 @@ program:
 
 .PHONY: driver
 driver:
-	@(cd driver; cargo build --target armv7-unknown-linux-gnueabihf)
+	@(cd driver; cargo build --target armv7-unknown-linux-gnueabihf --release)

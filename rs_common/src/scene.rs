@@ -181,10 +181,10 @@ impl<B: Backend> Scene<B> for ObjScene {
                     BarePrimitive {
                         vertices: t.vertices.map(From::from),
                         uv: t.uv,
-                        rgb: t.rgb,
+                        color: t.color,
                     }
                     .transform(object)
-                    .lighting(0.3, 0.3, [0.707, 0.0, -0.707].into())
+                    .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
                     .transform(view)
                 })
                 .collect();
@@ -221,12 +221,12 @@ impl<B: Backend> Scene<B> for Sphere {
                 tris.push(BarePrimitive {
                     vertices: [coord(i, j), coord(i + 1, j), coord(i + 1, j + 1)],
                     uv: [Vec2::default(); 3],
-                    rgb: [!0; 3],
+                    color: [Color::WHITE; 3],
                 });
                 tris.push(BarePrimitive {
                     vertices: [coord(i, j), coord(i + 1, j + 1), coord(i, j + 1)],
                     uv: [Vec2::default(); 3],
-                    rgb: [!0; 3],
+                    color: [Color::WHITE; 3],
                 });
             }
         }
@@ -237,7 +237,7 @@ impl<B: Backend> Scene<B> for Sphere {
                 let direction = [tt.cos(), 0.0, -tt.sin()].into();
                 let s = (normal * direction).clamp(0.0, 1.0);
                 let l = 0.3 + 0.3 * s + 0.3 * s * s * s;
-                t.rgb[i] = ((l * 255.0) as u32) * 0x10101;
+                t.color[i] = [l, l, l].into();
             }
         }
         let v: Vec<_> = tris.iter().map(|p| p.transform(view)).collect();

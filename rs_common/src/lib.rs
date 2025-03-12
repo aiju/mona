@@ -3,6 +3,7 @@
 use std::f64::consts::PI;
 
 use geometry::{Matrix, Vec2, Vec3, Vec4};
+use mesh::Color;
 
 pub mod geometry;
 pub mod obj_loader;
@@ -82,7 +83,7 @@ pub const CUBE: &'static [[[f64; 5]; 3]] = &[
 pub struct BarePrimitive {
     pub vertices: [Vec4; 3],
     pub uv: [Vec2; 3],
-    pub rgb: [u32; 3],
+    pub color: [Color; 3],
 }
 
 #[derive(Debug, Clone)]
@@ -105,8 +106,8 @@ impl BarePrimitive {
     pub fn new(data: [[f64; 5]; 3]) -> Self {
         let vertices = data.map(|d| [d[0], d[1], d[2], 1.0].into());
         let uv = data.map(|d| [d[3], d[4]].into());
-        let rgb = [!0; 3];
-        BarePrimitive { vertices, uv, rgb }
+        let color = [Color::WHITE; 3];
+        BarePrimitive { vertices, uv, color }
     }
     pub fn transform(&self, matrix: Matrix) -> Self {
         BarePrimitive {
@@ -142,13 +143,13 @@ impl BarePrimitive {
                         vertices: [va, self.vertices[j], self.vertices[k]],
                         uv: [uva, self.uv[j], self.uv[k]],
                         // TODO: fix this
-                        rgb: self.rgb,
+                        color: self.color,
                     },
                     BarePrimitive {
                         vertices: [va, vb, self.vertices[k]],
                         uv: [uva, uvb, self.uv[k]],
                         // TODO: fix this
-                        rgb: self.rgb,
+                        color: self.color,
                     },
                 ]
             }
@@ -161,7 +162,7 @@ impl BarePrimitive {
                     vertices: [self.vertices[i], va, vb],
                     uv: [self.uv[i], uva, uvb],
                     // TODO: fix this
-                    rgb: self.rgb,
+                    color: self.color,
                 }]
             }
             0b000 => vec![self.clone()],
@@ -264,7 +265,7 @@ impl BarePrimitive {
         let l = (direction * normal).clamp(0.0, 1.0);
         let ll = (ambient + l * diffuse).clamp(0.0, 1.0);
         Self {
-            rgb: [((ll * 255.0) as u32) * 0x10101; 3],
+            color: self.color.map(|c| c * ll),
             ..self.clone()
         }
     }
@@ -289,7 +290,7 @@ impl CoarseRasterIn {
         Some(CoarseRasterIn {
             edge_mat,
             uv: p.uv.map(|x| *x),
-            rgb: p.rgb,
+            rgb: p.color.map(|c| c.as_u32()),
             bbox,
         })
     }
