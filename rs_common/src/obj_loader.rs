@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     geometry::{Vec2, Vec3},
-    mesh::{self, Color, Mesh},
+    mesh::{self, Mesh},
 };
 
 struct ItemParser<'a> {
@@ -242,7 +242,6 @@ impl ObjLoader {
         mesh.triangles.push(vec![]);
         mesh.materials.push(mesh::Material {
             texture: None,
-            color: Color::WHITE,
         });
         ObjLoader {
             vertices: Vec::new(),
@@ -321,10 +320,9 @@ impl ObjLoader {
                 Some(Item::MtlLib(mtl_path)) => {
                     for mtl in MtlLoader::default().parse(path, &mtl_path) {
                         let texture = mtl.texture.as_ref().map(|name| self.lookup_texture(&name));
-                        let color = mtl.kd.into();
                         self.materials.push(mtl);
                         self.mesh.triangles.push(Vec::new());
-                        self.mesh.materials.push(mesh::Material { texture, color });
+                        self.mesh.materials.push(mesh::Material { texture });
                     }
                 }
                 Some(Item::UseMtl(material)) => {

@@ -210,12 +210,8 @@ impl AssetLoader for DriverAssetLoader {
             .unwrap()
             .into_rgba8()
             .into_flat_samples();
-        let mut data = image.samples;
-        for i in (0..data.len()).step_by(4) {
-            (data[i], data[i+2]) = (data[i+2], data[i]);
-        }
         Ok(Texture {
-            data: data.into(),
+            data: image.samples.into(),
             ty: TextureType {
                 width: image.layout.width as usize,
                 height: image.layout.height as usize,

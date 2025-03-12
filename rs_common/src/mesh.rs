@@ -20,8 +20,7 @@ impl Color {
         b: 255,
     };
     pub fn as_u32(self) -> u32 {
-        // FIXME: should swap R and B
-        (self.b as u32) | (self.g as u32) << 8 | (self.r as u32) << 16
+        (self.r as u32) | (self.g as u32) << 8 | (self.b as u32) << 16
     }
 }
 
@@ -49,13 +48,11 @@ impl From<[f64; 3]> for Color {
 #[derive(Clone, Debug)]
 pub struct Material<T> {
     pub texture: Option<T>,
-    pub color: Color,
 }
 impl<T> Material<T> {
     fn map_texture<S>(&self, fun: impl Fn(&T) -> S) -> Material<S> {
         Material {
             texture: self.texture.as_ref().map(fun),
-            color: self.color,
         }
     }
 }

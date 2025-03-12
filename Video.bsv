@@ -112,10 +112,13 @@ package Video;
             r_hsync <= x >= 640+16 && x < 640+16+96;
             r_vsync <= y >= 480+10 && y < 480+10+2;
             r_de <= x < 640 && y < 480;
+            let r = f_dma_resp.first[7:0];
+            let g = f_dma_resp.first[15:8];
+            let b = f_dma_resp.first[23:16];
             if(text_overlay.out.notEmpty &&& text_overlay.out.first matches tagged Valid .rgba)
                 r_data <= rgba[23:0];
             else
-                r_data <= f_dma_resp.notEmpty ? f_dma_resp.first[23:0] : 24'hFF;
+                r_data <= f_dma_resp.notEmpty ? {r, g, b} : 24'hFF;
         endrule
 
         interface ext = interface Ext_Video;
