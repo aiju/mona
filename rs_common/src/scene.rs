@@ -27,6 +27,7 @@ pub fn create<B: Backend>(
         ("Cube", None) => Some(Box::new(Cube::new(context, loader))),
         ("CatRoom", None) => Some(Box::new(CatRoom::new(context, loader))),
         ("Obj", Some(path)) => Some(Box::new(ObjScene::new(context, loader, path))),
+        ("Gltf", Some(path)) => Some(Box::new(GltfScene::new(context, loader, path))),
         ("Sphere", None) => Some(Box::new(Sphere::default())),
         ("Tetris", None) => Some(Box::new(crate::tetris::Tetris::new(context, loader))),
         _ => None,
@@ -226,6 +227,78 @@ impl<B: Backend> Scene<B> for ObjScene {
         self.time += delta;
     }
 }
+
+pub struct GltfScene {
+    model: LoadedMesh,
+    time: f64,
+    x: f64,
+    y: f64,
+    z: f64,
+    rot_x: f64,
+    rot_y: f64,
+}
+
+impl GltfScene {
+    fn new<B: Backend>(context: &mut Context<B>, loader: impl AssetLoader, path: &str) -> Self {
+        let gltf = crate::gltf::Gltf::from_file(path).unwrap();
+        let model = gltf.gather_meshes().load(context, loader);
+        Self {
+            model,
+            time: Default::default(),
+            rot_x: 0.0,
+            rot_y: 0.0,
+            x: 0.0,
+            y: 2.0,
+            z: -5.0,
+        }
+    }
+}
+
+impl<B: Backend> Scene<B> for GltfScene {
+    fn render(&mut self, context: &mut Context<B>) {
+        let object = Matrix::IDENTITY;
+        let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+            * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
+            * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
+            * Matrix::translate(-self.x, -self.y, -self.z);
+        for (triangles, material) in self.model.triangles.iter().zip(&self.model.materials) {
+            let v: Vec<_> = triangles
+                .iter()
+                .map(|t| {
+                    BarePrimitive {
+                        vertices: t.vertices.map(From::from),
+                        uv: t.uv,
+                        color: t.color,
+                    }
+                    .transform(object)
+                    .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
+                    .transform(view)
+                })
+                .collect();
+            context.draw().opt_textured(material.texture).run(&v);
+        }
+    }
+    fn update(&mut self, delta: f64, input: &InputState) {
+        self.rot_x = (input.mouse_x() as f64) / 10.0;
+        self.rot_y = (input.mouse_y() as f64) / 10.0;
+        let input_vector: Vec2 = [
+            (input.is_key_down(Key::KeyD) as u32 as f64)
+                - (input.is_key_down(Key::KeyA) as u32 as f64),
+            (input.is_key_down(Key::KeyW) as u32 as f64)
+                - (input.is_key_down(Key::KeyS) as u32 as f64),
+        ]
+        .into();
+        let delta_position = input_vector.rotate(-self.rot_x);
+        self.x += delta_position.x * delta * 10.0;
+        self.z += delta_position.y * delta * 10.0;
+        self.y += ((input.is_key_down(Key::KeyE) as u32 as f64)
+            - (input.is_key_down(Key::KeyQ) as u32 as f64))
+            * delta
+            * 10.0;
+        self.time += delta;
+    }
+}
+
 
 #[derive(Default)]
 pub struct Sphere {

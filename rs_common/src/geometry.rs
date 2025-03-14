@@ -34,6 +34,16 @@ impl From<[f64; 2]> for Vec2 {
     }
 }
 
+impl From<[f32; 3]> for Vec3 {
+    fn from(value: [f32; 3]) -> Self {
+        Vec3 {
+            x: value[0] as f64,
+            y: value[1] as f64,
+            z: value[2] as f64,
+        }
+    }
+}
+
 impl From<[f64; 3]> for Vec3 {
     fn from(value: [f64; 3]) -> Self {
         Vec3 {
@@ -52,6 +62,12 @@ impl From<[f64; 4]> for Vec4 {
             z: value[2],
             w: value[3],
         }
+    }
+}
+
+impl From<[f64; 16]> for Matrix {
+    fn from(value: [f64; 16]) -> Self {
+        unsafe { Matrix(std::mem::transmute::<[f64; 16], [[f64; 4]; 4]>(value)) }
     }
 }
 
@@ -109,6 +125,16 @@ impl Matrix {
             [t * x * x + c, t * x * y - s * z, t * x * z + s * y, 0.0],
             [t * x * y + s * z, t * y * y + c, t * y * z - s * x, 0.0],
             [t * x * z - s * y, t * y * z + s * x, t * z * z + c, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+    pub fn rotate_quaternion(q: [f64; 4]) -> Matrix {
+        let [qi, qj, qk, qr] = q;
+        let s = 2.0 / (qi * qi + qj * qj + qk * qk + qr * qr);
+        Matrix([
+            [1.0 - s * (qj * qj + qk * qk), s * (qi * qj - qk * qr), s * (qi * qk + qj * qr), 0.0],
+            [s * (qi * qj + qk * qr), 1.0 - s * (qi * qi + qk * qk), s * (qj * qk - qi * qr), 0.0],
+            [s * (qi * qk - qj * qr), s * (qj * qk + qi * qr), 1.0 - s * (qi * qi + qj * qj), 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }

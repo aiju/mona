@@ -28,5 +28,5 @@ quartus:
 	
 .PHONY: program
 program:
-	quartus_pgm -m jtag -o "p;output_files/mona.sof@2"
+	quartus_pgm -m jtag -o "p;quartus/output_files/mona.sof@2"
 

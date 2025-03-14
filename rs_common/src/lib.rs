@@ -13,6 +13,7 @@ pub mod render;
 pub mod assets;
 pub mod tetris;
 pub mod input;
+pub mod gltf;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;
