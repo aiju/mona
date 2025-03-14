@@ -1,0 +1,9 @@
+Open questions about the hardware
+===================================
+
+- Does coarse rasterisation do us any good? It runs at 4x4 pixels per cycle, same as fine rasterisation.
+- Should depth test run on 4x2 blocks instead? Would simplify the cache a lot.
+- Since we seem to be fill rate limited, should we reduce the front parts to 2x2 blocks instead of 4x4?
+- How to do performance measurements...
+- Should there be multiple fragment pipelines?
+- There are too many multipliers in the UV interpolation.
