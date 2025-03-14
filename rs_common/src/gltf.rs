@@ -19,11 +19,32 @@ use crate::{
 type Extras = Option<serde_json::Value>;
 type Extensions = Option<serde_json::Value>;
 
+macro_rules! define_id {
+    ( $x:ident ) => {
+        #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+        #[serde(transparent)]
+        struct $x(usize);
+    };
+}
+
+define_id!(SceneId);
+define_id!(NodeId);
+define_id!(CameraId);
+define_id!(MeshId);
+define_id!(AccessorId);
+define_id!(BufferViewId);
+define_id!(BufferId);
+define_id!(MaterialId);
+define_id!(TextureId);
+define_id!(SamplerId);
+define_id!(ImageId);
+define_id!(SkinId);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GltfRoot {
     asset: GltfAsset,
-    scene: Option<usize>,
+    scene: Option<SceneId>,
     #[serde(default)]
     scenes: Vec<GltfScene>,
     #[serde(default)]
@@ -62,7 +83,7 @@ struct GltfAsset {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct GltfScene {
     #[serde(default)]
-    nodes: Vec<usize>,
+    nodes: Vec<NodeId>,
     name: Option<String>,
     extras: Extras,
     extensions: Extensions,
@@ -70,12 +91,12 @@ struct GltfScene {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct GltfNode {
-    camera: Option<usize>,
+    camera: Option<CameraId>,
     #[serde(default)]
-    children: Vec<usize>,
-    skin: Option<usize>,
+    children: Vec<NodeId>,
+    skin: Option<SkinId>,
     matrix: Option<[f64; 16]>,
-    mesh: Option<usize>,
+    mesh: Option<MeshId>,
     rotation: Option<[f64; 4]>,
     scale: Option<[f64; 3]>,
     translation: Option<[f64; 3]>,
@@ -98,9 +119,9 @@ struct GltfMesh {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct GltfMeshPrimitive {
-    attributes: HashMap<String, usize>,
-    indices: Option<usize>,
-    material: Option<usize>,
+    attributes: HashMap<String, AccessorId>,
+    indices: Option<AccessorId>,
+    material: Option<MaterialId>,
     #[serde(default)]
     mode: GltfMeshPrimitiveMode,
     #[serde(default)]
@@ -130,7 +151,7 @@ impl Default for GltfMeshPrimitiveMode {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GltfAccessor {
-    buffer_view: Option<usize>,
+    buffer_view: Option<BufferViewId>,
     #[serde(default)]
     byte_offset: usize,
     component_type: GltfComponentType,
@@ -150,7 +171,7 @@ struct GltfAccessor {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GltfBufferView {
-    buffer: usize,
+    buffer: BufferId,
     #[serde(default)]
     byte_offset: usize,
     byte_length: usize,
@@ -184,7 +205,7 @@ struct GltfMaterial {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GltfTextureInfo {
-    index: usize,
+    index: TextureId,
     #[serde(default)]
     tex_coord: usize,
     scale: Option<f64>,
@@ -248,8 +269,8 @@ fn default_alpha_cutoff() -> f64 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GltfTexture {
-    sampler: Option<usize>,
-    source: Option<usize>,
+    sampler: Option<SamplerId>,
+    source: Option<ImageId>,
     name: Option<String>,
     extras: Extras,
     extensions: Extensions,
@@ -272,7 +293,7 @@ struct GltfSampler {
 struct GltfImage {
     uri: Option<String>,
     mine_type: Option<String>,
-    buffer_view: Option<usize>,
+    buffer_view: Option<BufferViewId>,
     name: Option<String>,
     extras: Extras,
     extensions: Extensions,
@@ -350,6 +371,29 @@ pub enum Error {
     IoError(#[from] std::io::Error),
     #[error("missing buffer")]
     MissingBuffer,
+    #[error("index error")]
+    IndexError,
+}
+
+macro_rules! define_id_lookup {
+    ( $name:ident, $id_type:ident, $result_type:ident, $array:ident ) => {
+        fn $name(&self, id: $id_type) -> Result<&$result_type, Error> {
+            self.$array.get(id.0).ok_or(Error::IndexError)
+        }
+    };
+}
+
+impl GltfRoot {
+    define_id_lookup!(scene, SceneId, GltfScene, scenes);
+    define_id_lookup!(node, NodeId, GltfNode, nodes);
+    define_id_lookup!(mesh, MeshId, GltfMesh, meshes);
+    define_id_lookup!(accessor, AccessorId, GltfAccessor, accessors);
+    define_id_lookup!(buffer_view, BufferViewId, GltfBufferView, buffer_views);
+    define_id_lookup!(buffer, BufferId, GltfBuffer, buffers);
+    define_id_lookup!(material, MaterialId, GltfMaterial, materials);
+    define_id_lookup!(texture, TextureId, GltfTexture, textures);
+    define_id_lookup!(sampler, SamplerId, GltfSampler, samplers);
+    define_id_lookup!(image, ImageId, GltfImage, images);
 }
 
 impl Gltf {
@@ -375,11 +419,11 @@ impl Gltf {
         let buf_reader = BufReader::new(file);
         Self::from_reader(path, buf_reader)
     }
-    fn accessor<T: GltfElement>(&self, index: usize) -> Accessor<'_, T> {
-        let accessor = &self.json.accessors[index];
+    fn accessor<T: GltfElement>(&self, index: AccessorId) -> Result<Accessor<'_, T>, Error> {
+        let accessor = self.json.accessor(index)?;
         assert!(accessor.sparse.is_none());
-        let buffer_view = &self.json.buffer_views[accessor.buffer_view.unwrap()];
-        let buffer = &self.json.buffers[buffer_view.buffer];
+        let buffer_view = self.json.buffer_view(accessor.buffer_view.unwrap())?;
+        let buffer = self.json.buffer(buffer_view.buffer)?;
         let element_len = accessor.component_type.len() * accessor.type_.len();
         let byte_stride = buffer_view.byte_stride.unwrap_or(element_len);
         assert!(byte_stride >= element_len);
@@ -390,68 +434,86 @@ impl Gltf {
         );
         assert!(expected_len >= provided_len);
         assert!(accessor.component_type == T::COMPONENT_TYPE && accessor.type_ == T::ACCESSOR_TYPE);
-        Accessor {
-            data: &self.buffers[buffer_view.buffer]
+        Ok(Accessor {
+            data: &self.buffers[buffer_view.buffer.0]
                 [buffer_view.byte_offset..buffer_view.byte_offset + expected_len],
             byte_stride,
             count: accessor.count,
             _phantom: PhantomData,
-        }
+        })
     }
-    fn translate_materials(&self, mesh: &mut mesh::Mesh) {
+    fn translate_materials(&self, mesh: &mut mesh::Mesh) -> Result<(), Error> {
         for texture in &self.json.textures {
-            let image = &self.json.images[texture.source.unwrap()];
+            let image = self.json.image(texture.source.unwrap())?;
             mesh.textures.push(image.uri.clone().unwrap());
         }
         for material in &self.json.materials {
             let mut mesh_material = mesh::Material::default();
             if let Some(texture) = &material.pbr_metallic_roughness.base_color_texture {
-                mesh_material.texture = Some(texture.index);
+                mesh_material.texture = Some(texture.index.0);
             }
             mesh.triangles.push(Vec::new());
             mesh.materials.push(mesh_material);
         }
+        Ok(())
     }
     fn walk_nodes(
         &self,
-        index: usize,
+        index: NodeId,
         mut matrix: Matrix,
-        fun: &mut impl FnMut(&GltfNode, Matrix),
-    ) {
-        let node = &self.json.nodes[index];
+        fun: &mut impl FnMut(&GltfNode, Matrix) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let node = self.json.node(index)?;
         matrix = matrix * node.local_matrix();
-        fun(node, matrix);
+        fun(node, matrix)?;
         for child in &node.children {
-            self.walk_nodes(*child, matrix, fun);
+            self.walk_nodes(*child, matrix, fun)?;
+        }
+        Ok(())
+    }
+    fn material_color(&self, index: Option<MaterialId>) -> Result<Color, Error> {
+        if let Some(index) = index {
+            Ok(self
+                .json
+                .material(index)?
+                .pbr_metallic_roughness
+                .base_color_factor
+                .into())
+        } else {
+            Ok(Color::WHITE)
         }
     }
-    fn material_color(&self, index: Option<usize>) -> Color {
-        index
-            .map(|m| {
-                self.json.materials[m]
-                    .pbr_metallic_roughness
-                    .base_color_factor
-            })
-            .unwrap_or_else(default_base_color_factor)
-            .into()
+    fn texcoord_accessor(
+        &self,
+        p: &GltfMeshPrimitive,
+    ) -> Result<Option<Accessor<'_, [f32; 2]>>, Error> {
+        let Some(material_id) = p.material else {
+            return Ok(None);
+        };
+        let material = self.json.material(material_id)?;
+        let Some(tex_info) = &material.pbr_metallic_roughness.base_color_texture else {
+            return Ok(None);
+        };
+        let Some(&accessor_idx) = p
+            .attributes
+            .get(&format!("TEXCOORD_{}", tex_info.tex_coord))
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.accessor(accessor_idx)?))
     }
-    fn texcoord_accessor(&self, p: &GltfMeshPrimitive) -> Option<Accessor<'_, [f32; 2]>> {
-        let material = &self.json.materials[p.material?];
-        let tex_coord = material
-            .pbr_metallic_roughness
-            .base_color_texture
-            .as_ref()?
-            .tex_coord;
-        let accessor_idx = p.attributes.get(&format!("TEXCOORD_{}", tex_coord))?;
-        Some(self.accessor(*accessor_idx))
-    }
-    fn gather_primitive(&self, p: &GltfMeshPrimitive, matrix: Matrix, mesh: &mut mesh::Mesh) {
+    fn gather_primitive(
+        &self,
+        p: &GltfMeshPrimitive,
+        matrix: Matrix,
+        mesh: &mut mesh::Mesh,
+    ) -> Result<(), Error> {
         assert!(p.mode == GltfMeshPrimitiveMode::Triangles);
-        let index_accessor: Accessor<'_, u16> = self.accessor(p.indices.unwrap());
-        let position_accessor: Accessor<'_, [f32; 3]> = self.accessor(p.attributes["POSITION"]);
-        let texcoord_accessor = self.texcoord_accessor(p);
-        let material_index = p.material.map(|x| x + 1).unwrap_or_default();
-        let color: Color = self.material_color(p.material);
+        let index_accessor: Accessor<'_, u16> = self.accessor(p.indices.unwrap())?;
+        let position_accessor: Accessor<'_, [f32; 3]> = self.accessor(p.attributes["POSITION"])?;
+        let texcoord_accessor = self.texcoord_accessor(p)?;
+        let material_index = p.material.map(|x| x.0 + 1).unwrap_or_default();
+        let color: Color = self.material_color(p.material)?;
         for ((p1, uv1), (p2, uv2), (p3, uv3)) in index_accessor
             .iter()
             .map(|i| {
@@ -472,26 +534,28 @@ impl Gltf {
                 color: [color; 3],
             });
         }
+        Ok(())
     }
-    pub fn gather_meshes(&self) -> mesh::Mesh {
+    pub fn gather_meshes(&self) -> Result<mesh::Mesh, Error> {
         let mut ret_mesh = mesh::Mesh {
             triangles: vec![vec![]],
             materials: vec![mesh::Material { texture: None }],
             textures: vec![],
         };
-        self.translate_materials(&mut ret_mesh);
-        let scene = &self.json.scenes[self.json.scene.unwrap()];
+        self.translate_materials(&mut ret_mesh)?;
+        let scene = self.json.scene(self.json.scene.unwrap())?;
         for node in &scene.nodes {
             self.walk_nodes(*node, Matrix::IDENTITY, &mut |node, matrix| {
                 if let Some(mesh_idx) = node.mesh {
-                    let mesh = &self.json.meshes[mesh_idx];
+                    let mesh = self.json.mesh(mesh_idx)?;
                     for primitives in &mesh.primitives {
-                        self.gather_primitive(&primitives, matrix, &mut ret_mesh);
+                        self.gather_primitive(&primitives, matrix, &mut ret_mesh)?;
                     }
                 }
-            });
+                Ok(())
+            })?;
         }
-        ret_mesh
+        Ok(ret_mesh)
     }
 }
 

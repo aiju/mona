@@ -241,7 +241,7 @@ pub struct GltfScene {
 impl GltfScene {
     fn new<B: Backend>(context: &mut Context<B>, loader: impl AssetLoader, path: &str) -> Self {
         let gltf = crate::gltf::Gltf::from_file(path).unwrap();
-        let model = gltf.gather_meshes().load(context, loader);
+        let model = gltf.gather_meshes().unwrap().load(context, loader);
         Self {
             model,
             time: Default::default(),

@@ -56,7 +56,7 @@ impl From<[f64; 4]> for Color {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Material<T> {
     pub texture: Option<T>,
 }
@@ -65,6 +65,12 @@ impl<T> Material<T> {
         Material {
             texture: self.texture.as_ref().map(fun),
         }
+    }
+}
+
+impl<T> Default for Material<T> {
+    fn default() -> Self {
+        Self { texture: Default::default() }
     }
 }
 
