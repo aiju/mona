@@ -45,7 +45,18 @@ impl From<[f64; 3]> for Color {
     }
 }
 
-#[derive(Clone, Debug)]
+impl From<[f64; 4]> for Color {
+    fn from(value: [f64; 4]) -> Self {
+        let f = |v: f64| (v * 255.0) as u8;
+        Color {
+            r: f(value[0]),
+            g: f(value[1]),
+            b: f(value[2]),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct Material<T> {
     pub texture: Option<T>,
 }

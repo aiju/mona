@@ -12,7 +12,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use thiserror::Error;
 
 use crate::{
-    geometry::{Matrix, Vec3, Vec4},
+    geometry::{Matrix, Vec2, Vec3, Vec4},
     mesh::{self, Color, Triangle},
 };
 
@@ -36,6 +36,16 @@ struct GltfRoot {
     buffer_views: Vec<GltfBufferView>,
     #[serde(default)]
     buffers: Vec<GltfBuffer>,
+    #[serde(default)]
+    materials: Vec<GltfMaterial>,
+    #[serde(default)]
+    textures: Vec<GltfTexture>,
+    #[serde(default)]
+    samplers: Vec<GltfSampler>,
+    #[serde(default)]
+    images: Vec<GltfImage>,
+    extras: Extras,
+    extensions: Extensions,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -151,6 +161,123 @@ struct GltfBufferView {
     extensions: Extensions,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfMaterial {
+    name: Option<String>,
+    #[serde(default)]
+    pbr_metallic_roughness: GltfPbrMetallicRoughness,
+    normal_texture: Option<GltfTextureInfo>,
+    occlusion_texture: Option<GltfTextureInfo>,
+    emissive_texture: Option<GltfTextureInfo>,
+    emissive_factor: Option<[f64; 3]>,
+    #[serde(default)]
+    alpha_mode: GltfAlphaMode,
+    #[serde(default = "default_alpha_cutoff")]
+    alpha_cutoff: f64,
+    #[serde(default)]
+    double_sided: bool,
+    extras: Extras,
+    extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfTextureInfo {
+    index: usize,
+    #[serde(default)]
+    tex_coord: usize,
+    scale: Option<f64>,
+    strength: Option<f64>,
+    extras: Extras,
+    extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfPbrMetallicRoughness {
+    #[serde(default = "default_base_color_factor")]
+    base_color_factor: [f64; 4],
+    base_color_texture: Option<GltfTextureInfo>,
+    #[serde(default = "one")]
+    metallic_factor: f64,
+    #[serde(default = "one")]
+    roughness_factor: f64,
+    metallic_roughness_texture: Option<GltfTextureInfo>,
+    extras: Extras,
+    extensions: Extensions,
+}
+
+impl Default for GltfPbrMetallicRoughness {
+    fn default() -> GltfPbrMetallicRoughness {
+        GltfPbrMetallicRoughness {
+            base_color_factor: default_base_color_factor(),
+            base_color_texture: None,
+            metallic_factor: 1.0,
+            roughness_factor: 1.0,
+            metallic_roughness_texture: None,
+            extras: None,
+            extensions: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum GltfAlphaMode {
+    OPAQUE,
+    MASK,
+    BLEND,
+}
+
+impl Default for GltfAlphaMode {
+    fn default() -> Self {
+        GltfAlphaMode::OPAQUE
+    }
+}
+
+fn default_base_color_factor() -> [f64; 4] {
+    [1.0; 4]
+}
+fn one() -> f64 {
+    1.0
+}
+fn default_alpha_cutoff() -> f64 {
+    0.5
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfTexture {
+    sampler: Option<usize>,
+    source: Option<usize>,
+    name: Option<String>,
+    extras: Extras,
+    extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfSampler {
+    mag_filter: Option<u32>,
+    min_filter: Option<u32>,
+    wrap_s: Option<u32>,
+    wrap_t: Option<u32>,
+    name: Option<String>,
+    extras: Extras,
+    extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfImage {
+    uri: Option<String>,
+    mine_type: Option<String>,
+    buffer_view: Option<usize>,
+    name: Option<String>,
+    extras: Extras,
+    extensions: Extensions,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u16)]
 pub enum GltfComponentType {
@@ -250,6 +377,7 @@ impl Gltf {
     }
     fn accessor<T: GltfElement>(&self, index: usize) -> Accessor<'_, T> {
         let accessor = &self.json.accessors[index];
+        assert!(accessor.sparse.is_none());
         let buffer_view = &self.json.buffer_views[accessor.buffer_view.unwrap()];
         let buffer = &self.json.buffers[buffer_view.buffer];
         let element_len = accessor.component_type.len() * accessor.type_.len();
@@ -270,6 +398,20 @@ impl Gltf {
             _phantom: PhantomData,
         }
     }
+    fn translate_materials(&self, mesh: &mut mesh::Mesh) {
+        for texture in &self.json.textures {
+            let image = &self.json.images[texture.source.unwrap()];
+            mesh.textures.push(image.uri.clone().unwrap());
+        }
+        for material in &self.json.materials {
+            let mut mesh_material = mesh::Material::default();
+            if let Some(texture) = &material.pbr_metallic_roughness.base_color_texture {
+                mesh_material.texture = Some(texture.index);
+            }
+            mesh.triangles.push(Vec::new());
+            mesh.materials.push(mesh_material);
+        }
+    }
     fn walk_nodes(
         &self,
         index: usize,
@@ -283,23 +425,51 @@ impl Gltf {
             self.walk_nodes(*child, matrix, fun);
         }
     }
+    fn material_color(&self, index: Option<usize>) -> Color {
+        index
+            .map(|m| {
+                self.json.materials[m]
+                    .pbr_metallic_roughness
+                    .base_color_factor
+            })
+            .unwrap_or_else(default_base_color_factor)
+            .into()
+    }
+    fn texcoord_accessor(&self, p: &GltfMeshPrimitive) -> Option<Accessor<'_, [f32; 2]>> {
+        let material = &self.json.materials[p.material?];
+        let tex_coord = material
+            .pbr_metallic_roughness
+            .base_color_texture
+            .as_ref()?
+            .tex_coord;
+        let accessor_idx = p.attributes.get(&format!("TEXCOORD_{}", tex_coord))?;
+        Some(self.accessor(*accessor_idx))
+    }
     fn gather_primitive(&self, p: &GltfMeshPrimitive, matrix: Matrix, mesh: &mut mesh::Mesh) {
         assert!(p.mode == GltfMeshPrimitiveMode::Triangles);
         let index_accessor: Accessor<'_, u16> = self.accessor(p.indices.unwrap());
         let position_accessor: Accessor<'_, [f32; 3]> = self.accessor(p.attributes["POSITION"]);
-        for (p1, p2, p3) in index_accessor
+        let texcoord_accessor = self.texcoord_accessor(p);
+        let material_index = p.material.map(|x| x + 1).unwrap_or_default();
+        let color: Color = self.material_color(p.material);
+        for ((p1, uv1), (p2, uv2), (p3, uv3)) in index_accessor
             .iter()
             .map(|i| {
                 let vec: Vec3 = position_accessor.get(i as usize).into();
                 let vec4: Vec4 = vec.into();
-                (matrix * vec4).xyz()
+                let tex_coord: Vec2 = texcoord_accessor
+                    .as_ref()
+                    .map(|a| a.get(i as usize))
+                    .unwrap_or_default()
+                    .into();
+                ((matrix * vec4).xyz(), tex_coord)
             })
             .tuples()
         {
-            mesh.triangles.last_mut().unwrap().push(Triangle {
+            mesh.triangles[material_index].push(Triangle {
                 vertices: [p1, p2, p3],
-                uv: Default::default(),
-                color: [Color::WHITE; 3],
+                uv: [uv1, uv2, uv3],
+                color: [color; 3],
             });
         }
     }
@@ -309,6 +479,7 @@ impl Gltf {
             materials: vec![mesh::Material { texture: None }],
             textures: vec![],
         };
+        self.translate_materials(&mut ret_mesh);
         let scene = &self.json.scenes[self.json.scene.unwrap()];
         for node in &scene.nodes {
             self.walk_nodes(*node, Matrix::IDENTITY, &mut |node, matrix| {
@@ -365,6 +536,17 @@ impl GltfElement for u16 {
 impl GltfElement for u32 {
     const COMPONENT_TYPE: GltfComponentType = GltfComponentType::U32;
     const ACCESSOR_TYPE: GltfAccessorType = GltfAccessorType::SCALAR;
+    unsafe fn read(data: &[u8]) -> Self {
+        #[cfg(target_endian = "little")]
+        unsafe {
+            *data.as_ptr().cast()
+        }
+    }
+}
+
+impl GltfElement for [f32; 2] {
+    const COMPONENT_TYPE: GltfComponentType = GltfComponentType::F32;
+    const ACCESSOR_TYPE: GltfAccessorType = GltfAccessorType::VEC2;
     unsafe fn read(data: &[u8]) -> Self {
         #[cfg(target_endian = "little")]
         unsafe {

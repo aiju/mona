@@ -25,6 +25,15 @@ pub struct Vec4 {
 #[derive(Copy, Clone)]
 pub struct Matrix(pub [[f64; 4]; 4]);
 
+impl From<[f32; 2]> for Vec2 {
+    fn from(value: [f32; 2]) -> Self {
+        Vec2 {
+            x: value[0] as f64,
+            y: value[1] as f64,
+        }
+    }
+}
+
 impl From<[f64; 2]> for Vec2 {
     fn from(value: [f64; 2]) -> Self {
         Vec2 {
