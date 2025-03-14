@@ -11,6 +11,8 @@ pub mod scene;
 pub mod mesh;
 pub mod render;
 pub mod assets;
+pub mod tetris;
+pub mod input;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;

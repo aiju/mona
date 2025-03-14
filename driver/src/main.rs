@@ -2,14 +2,17 @@
 
 use crate::{debug::*, hw::*};
 use clap::Parser;
+use evdev::EvdevSource;
 use rs_common::{
     assets::AssetLoader,
+    input::{InputSource, InputState},
     render::{Backend, Context, Texture, TextureType},
     *,
 };
 use std::time::Instant;
 
 pub mod debug;
+pub mod evdev;
 pub mod hw;
 
 #[repr(C)]
@@ -194,7 +197,8 @@ impl Backend for HwBackend {
             self.cmd_ptr += size_of::<HwTriangle>() as u32;
             self.cmd_len += 1;
         }
-        self.hw.set_reg(R_CONTROL, B_CONTROL_START | self.cmd_len << 16);
+        self.hw
+            .set_reg(R_CONTROL, B_CONTROL_START | self.cmd_len << 16);
         self.hw.flush_pipeline();
     }
 }
@@ -204,7 +208,7 @@ struct DriverAssetLoader {}
 impl AssetLoader for DriverAssetLoader {
     type Error = ();
     fn load_texture(&mut self, name: &str) -> Result<render::Texture, Self::Error> {
-        let image = image::ImageReader::open(std::path::Path::new("/mona/aiju").join(name))
+        let image = image::ImageReader::open(std::path::Path::new("/mona/aiju/models").join(name))
             .unwrap()
             .decode()
             .unwrap()
@@ -260,10 +264,17 @@ fn main() {
     let mut scene = scene::create(&scene, &mut context, DriverAssetLoader::default())
         .expect(&format!("unknown scene {}", &scene));
 
+    let mut input_source = EvdevSource::new();
+    let mut input_state = InputState::default();
+
     loop {
+        while let Some(event) = input_source.poll_event() {
+            input_state.update(event.clone());
+            scene.input(event);
+        }
         context.backend_mut().start_frame();
         scene.render(&mut context);
         context.backend_mut().render_frame();
-        scene.update(0.01);
+        scene.update(0.01, &input_state);
     }
 }

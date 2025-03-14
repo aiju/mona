@@ -1,6 +1,7 @@
 use crate::{
     assets::AssetLoader,
     geometry::Matrix,
+    input::{InputEvent, InputState, Key},
     mesh::LoadedMesh,
     render::{Backend, Context, TextureId},
     *,
@@ -8,8 +9,9 @@ use crate::{
 
 #[allow(unused_variables)]
 pub trait Scene<B: Backend> {
+    fn input(&mut self, event: InputEvent) {}
     fn render(&mut self, context: &mut Context<B>);
-    fn update(&mut self, delta: f64) {}
+    fn update(&mut self, delta: f64, input: &InputState) {}
 }
 
 pub fn create<B: Backend>(
@@ -26,11 +28,12 @@ pub fn create<B: Backend>(
         ("CatRoom", None) => Some(Box::new(CatRoom::new(context, loader))),
         ("Obj", Some(path)) => Some(Box::new(ObjScene::new(context, loader, path))),
         ("Sphere", None) => Some(Box::new(Sphere::default())),
+        ("Tetris", None) => Some(Box::new(crate::tetris::Tetris::new(context, loader))),
         _ => None,
     }
 }
 
-const CUBE: &'static [[[f64; 5]; 3]] = &[
+pub const CUBE: &'static [[[f64; 5]; 3]] = &[
     [
         [-1.0, -1.0, -1.0, 0.0, 0.0],
         [-1.0, -1.0, 1.0, 0.0, 1.0],
@@ -118,7 +121,7 @@ impl<B: Backend> Scene<B> for Cube {
             .collect();
         context.draw().textured(self.texture).run(&v);
     }
-    fn update(&mut self, delta: f64) {
+    fn update(&mut self, delta: f64, _input: &InputState) {
         self.time += delta;
     }
 }
@@ -149,7 +152,7 @@ impl<B: Backend> Scene<B> for CatRoom {
             .collect();
         context.draw().textured(self.texture).run(&v);
     }
-    fn update(&mut self, delta: f64) {
+    fn update(&mut self, delta: f64, _input: &InputState) {
         self.time += delta;
     }
 }
@@ -157,6 +160,11 @@ impl<B: Backend> Scene<B> for CatRoom {
 pub struct ObjScene {
     model: LoadedMesh,
     time: f64,
+    x: f64,
+    y: f64,
+    z: f64,
+    rot_x: f64,
+    rot_y: f64,
 }
 
 impl ObjScene {
@@ -165,15 +173,22 @@ impl ObjScene {
         Self {
             model,
             time: Default::default(),
+            rot_x: 0.0,
+            rot_y: 0.0,
+            x: 0.0,
+            y: 2.0,
+            z: -5.0,
         }
     }
 }
 
 impl<B: Backend> Scene<B> for ObjScene {
     fn render(&mut self, context: &mut Context<B>) {
-        let object = Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
+        let object = Matrix::IDENTITY;
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
-            * Matrix::translate(0.0, -2.0, 5.0);
+            * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
+            * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
+            * Matrix::translate(-self.x, -self.y, -self.z);
         for (triangles, material) in self.model.triangles.iter().zip(&self.model.materials) {
             let v: Vec<_> = triangles
                 .iter()
@@ -191,7 +206,23 @@ impl<B: Backend> Scene<B> for ObjScene {
             context.draw().opt_textured(material.texture).run(&v);
         }
     }
-    fn update(&mut self, delta: f64) {
+    fn update(&mut self, delta: f64, input: &InputState) {
+        self.rot_x = (input.mouse_x() as f64) / 10.0;
+        self.rot_y = (input.mouse_y() as f64) / 10.0;
+        let input_vector: Vec2 = [
+            (input.is_key_down(Key::KeyD) as u32 as f64)
+                - (input.is_key_down(Key::KeyA) as u32 as f64),
+            (input.is_key_down(Key::KeyW) as u32 as f64)
+                - (input.is_key_down(Key::KeyS) as u32 as f64),
+        ]
+        .into();
+        let delta_position = input_vector.rotate(-self.rot_x);
+        self.x += delta_position.x * delta * 10.0;
+        self.z += delta_position.y * delta * 10.0;
+        self.y += ((input.is_key_down(Key::KeyE) as u32 as f64)
+            - (input.is_key_down(Key::KeyQ) as u32 as f64))
+            * delta
+            * 10.0;
         self.time += delta;
     }
 }
@@ -243,7 +274,7 @@ impl<B: Backend> Scene<B> for Sphere {
         let v: Vec<_> = tris.iter().map(|p| p.transform(view)).collect();
         context.draw().run(&v);
     }
-    fn update(&mut self, delta: f64) {
+    fn update(&mut self, delta: f64, _input: &InputState) {
         self.time += delta;
     }
 }

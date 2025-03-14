@@ -210,7 +210,13 @@ impl MtlLoader {
     }
     pub fn parse(mut self, obj_path: &str, path: &str) -> Vec<Material> {
         let p = Path::new(obj_path).parent().unwrap().join(path);
-        let f = BufReader::new(std::fs::File::open(p).unwrap());
+        let f = match std::fs::File::open(p) {
+            Ok(f) => BufReader::new(f),
+            Err(err) => {
+                eprintln!("can't open materials file {:?}: {:?}", path, err);
+                return Vec::new();
+            }
+        };
         for line in f.lines() {
             match ItemParser::new(&line.unwrap()).mtl_parse() {
                 Some(MtlItem::NewMtl(name)) => self.materials.push(Material {

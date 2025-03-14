@@ -3,23 +3,23 @@ use std::f64::consts::PI;
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Vec2 {
-    x: f64,
-    y: f64,
+    pub x: f64,
+    pub y: f64,
 }
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Vec3 {
-    x: f64,
-    y: f64,
-    z: f64,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
 }
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Vec4 {
-    x: f64,
-    y: f64,
-    z: f64,
-    w: f64,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub w: f64,
 }
 #[repr(transparent)]
 #[derive(Copy, Clone)]
@@ -61,7 +61,7 @@ impl From<Vec3> for Vec4 {
             x: value.x,
             y: value.y,
             z: value.z,
-            w: 1.0
+            w: 1.0,
         }
     }
 }
@@ -91,6 +91,12 @@ impl std::ops::Deref for Vec4 {
 }
 
 impl Matrix {
+    pub const IDENTITY: Matrix = Matrix([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
     pub fn rotate(angle: f64, axis: [f64; 3]) -> Matrix {
         let c = (angle * PI / 180.0).cos();
         let s = (angle * PI / 180.0).sin();
@@ -111,6 +117,14 @@ impl Matrix {
             [1.0, 0.0, 0.0, x],
             [0.0, 1.0, 0.0, y],
             [0.0, 0.0, 1.0, z],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+    pub fn scale(x: f64, y: f64, z: f64) -> Matrix {
+        Matrix([
+            [x, 0.0, 0.0, 0.0],
+            [0.0, y, 0.0, 0.0],
+            [0.0, 0.0, z, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }
@@ -162,6 +176,11 @@ impl Vec2 {
             self[1] * l + other[1] * (1.0 - l),
         ]
         .into()
+    }
+    pub fn rotate(self, angle: f64) -> Vec2 {
+        let c = (angle * PI / 180.0).cos();
+        let s = (angle * PI / 180.0).sin();
+        [self[0] * c - self[1] * s, self[0] * s + self[1] * c].into()
     }
 }
 

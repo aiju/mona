@@ -234,6 +234,6 @@ fn main() {
         window
             .update_with_buffer(&context.backend().frame, WIDTH, HEIGHT)
             .unwrap();
-        scene.update(10.0 / 60.0);
+        scene.update(10.0 / 60.0, &Default::default());
     }
 }
