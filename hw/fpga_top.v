@@ -1,4 +1,4 @@
-module testhdl(
+module fpga_top(
 	input wire clk,
 	output wire [7:0] led,
 	output wire scl,
