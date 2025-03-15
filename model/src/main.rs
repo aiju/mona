@@ -1,13 +1,12 @@
 #![allow(dead_code)]
 
-use std::{path::PathBuf, sync::Arc};
-
 use clap::Parser;
 use rs_common::{
     assets::AssetLoader,
-    render::{Backend, Context, Texture, TextureType},
+    render::{Backend, Context, Texture},
     *,
 };
+use std::sync::Arc;
 
 #[derive(Default, Debug)]
 struct Stats {
@@ -180,44 +179,7 @@ struct Cli {
     scene: String,
 }
 
-use image::ImageReader;
 use minifb::{Key, Window, WindowOptions};
-
-#[derive(Default)]
-struct ModelAssetLoader {}
-impl AssetLoader for ModelAssetLoader {
-    type File = std::fs::File;
-
-    fn open_file(
-        &mut self,
-        name: &str,
-        parent: Option<&str>,
-    ) -> Result<Self::File, assets::AssetLoaderError> {
-        let mut path = PathBuf::default();
-        if let Some(p) = parent {
-            path.push(PathBuf::from(p).parent().unwrap());
-        }
-        path.push(name);
-        Ok(std::fs::File::open(path)?)
-    }
-
-    fn load_texture(&mut self, _name: &str) -> Result<Texture, assets::AssetLoaderError> {
-        let image = ImageReader::open("/home/aiju/cat.jpg")
-            .unwrap()
-            .decode()
-            .unwrap()
-            .into_rgba8()
-            .into_flat_samples();
-        Ok(Texture {
-            data: image.samples.into(),
-            ty: TextureType {
-                width: image.layout.width as usize,
-                height: image.layout.height as usize,
-                stride: image.layout.height_stride / 4,
-            },
-        })
-    }
-}
 
 fn main() {
     let cli = Cli::parse();
@@ -235,7 +197,7 @@ fn main() {
     window.set_target_fps(60);
 
     let mut context = Context::new(ModelBackend::new());
-    let mut scene = scene::create(&cli.scene, &mut context, ModelAssetLoader::default())
+    let mut scene = scene::create(&cli.scene, &mut context, &mut AssetLoader::default())
         .expect(&format!("unknown scene {}", &cli.scene));
 
     while window.is_open() && !window.is_key_down(Key::Escape) {

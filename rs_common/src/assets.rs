@@ -1,6 +1,5 @@
+use std::path::{Path, PathBuf};
 use thiserror::Error;
-use crate::render::Texture;
-use std::{fmt::Debug, io::{Read, Seek}};
 
 #[derive(Error, Debug)]
 pub enum AssetLoaderError {
@@ -8,20 +7,27 @@ pub enum AssetLoaderError {
     IoError(#[from] std::io::Error),
 }
 
-pub trait AssetLoader {
-    type File: Read + Seek;
-    fn open_file(&mut self, name: &str, parent: Option<&str>) -> Result<Self::File, AssetLoaderError>;
-    fn load_texture(&mut self, name: &str) -> Result<Texture, AssetLoaderError>;
+pub fn resolve_path(name: impl AsRef<Path>, parent: Option<impl AsRef<Path>>) -> PathBuf {
+    let mut buf = PathBuf::new();
+    if let Some(p) = parent {
+        buf.push(p.as_ref().parent().unwrap());
+    }
+    buf.push(name);
+    buf
 }
 
-impl<T: AssetLoader> AssetLoader for &mut T {
-    type File = T::File;
+#[derive(Default)]
+pub struct AssetLoader {}
 
-    fn open_file(&mut self, name: &str, parent: Option<&str>) -> Result<Self::File, AssetLoaderError> {
-        (**self).open_file(name, parent)
+impl AssetLoader {
+    pub fn open_file(&self, path: impl AsRef<Path>) -> Result<std::fs::File, AssetLoaderError> {
+        Ok(std::fs::File::open(path)?)
     }
-
-    fn load_texture(&mut self, name: &str) -> Result<Texture, AssetLoaderError> {
-        (**self).load_texture(name)
+    pub fn open_file_relative(
+        &self,
+        path: impl AsRef<Path>,
+        parent: Option<impl AsRef<Path>>,
+    ) -> Result<std::fs::File, AssetLoaderError> {
+        Ok(std::fs::File::open(resolve_path(path, parent))?)
     }
 }

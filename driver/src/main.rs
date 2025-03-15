@@ -4,12 +4,9 @@ use crate::{debug::*, hw::*};
 use clap::Parser;
 use evdev::EvdevSource;
 use rs_common::{
-    assets::AssetLoader,
-    input::{InputSource, InputState},
-    render::{Backend, Context, Texture, TextureType},
-    *,
+    assets::AssetLoader, input::{InputSource, InputState}, render::{Backend, Context}, *
 };
-use std::{path::PathBuf, time::Instant};
+use std::time::Instant;
 
 pub mod debug;
 pub mod evdev;
@@ -204,54 +201,6 @@ impl Backend for HwBackend {
     }
 }
 
-#[derive(Default)]
-struct DriverAssetLoader {}
-impl AssetLoader for DriverAssetLoader {
-    type File = std::fs::File;
-    
-    fn open_file(&mut self, name: &str, parent: Option<&str>) -> Result<Self::File, assets::AssetLoaderError> {
-        let mut path = PathBuf::default();
-        if let Some(p) = parent {
-            path.push(PathBuf::from(p).parent().unwrap());
-        }
-        path.push(name);
-        Ok(std::fs::File::open(path)?)
-    }
-
-    fn load_texture(&mut self, name: &str) -> Result<render::Texture, assets::AssetLoaderError> {
-        let image = image::ImageReader::open(std::path::Path::new("/mona/aiju/models").join(name))
-            .unwrap()
-            .decode()
-            .unwrap()
-            .into_rgba8()
-            .into_flat_samples();
-        Ok(Texture {
-            data: image.samples.into(),
-            ty: TextureType {
-                width: image.layout.width as usize,
-                height: image.layout.height as usize,
-                stride: image.layout.height_stride / 4,
-            },
-        })
-
-        /*
-            let mut data = Vec::with_capacity(512 * 512 * 4);
-            File::open("texture.raw")
-                .unwrap()
-                .read_to_end(&mut data)
-                .unwrap();
-            Ok(Texture {
-                data: data.into(),
-                ty: TextureType {
-                    width: 512,
-                    height: 512,
-                    stride: 512,
-                },
-            })
-        */
-    }
-}
-
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -272,7 +221,7 @@ fn main() {
     let scene = std::mem::take(&mut cli.scene);
     let mut context = Context::new(HwBackend::new(Hw::new().unwrap(), cli));
 
-    let mut scene = scene::create(&scene, &mut context, DriverAssetLoader::default())
+    let mut scene = scene::create(&scene, &mut context, &mut AssetLoader::default())
         .expect(&format!("unknown scene {}", &scene));
 
     let mut input_source = EvdevSource::new();

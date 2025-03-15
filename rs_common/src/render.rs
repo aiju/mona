@@ -10,7 +10,7 @@ pub struct TextureType {
     pub stride: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Texture<'a> {
     pub data: Cow<'a, [u8]>,
     pub ty: TextureType,

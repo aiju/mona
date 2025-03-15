@@ -4,6 +4,7 @@ use std::{
     io::{BufRead, BufReader, Lines},
     iter::Peekable,
     path::Path,
+    rc::Rc,
     str::Chars,
 };
 
@@ -246,9 +247,8 @@ impl ObjLoader {
     pub fn new() -> Self {
         let mut mesh = Mesh::default();
         mesh.triangles.push(vec![]);
-        mesh.materials.push(mesh::Material {
-            texture: None,
-        });
+        mesh.materials
+            .push(Rc::new(mesh::Material { texture: None }));
         ObjLoader {
             vertices: Vec::new(),
             normals: Vec::new(),
@@ -286,18 +286,6 @@ impl ObjLoader {
             return self.uv[self.uv.len() - (-n) as usize];
         }
     }
-    fn lookup_texture(&mut self, name: &str) -> usize {
-        self.mesh
-            .textures
-            .iter()
-            .enumerate()
-            .find_map(|(i, n)| (n == name).then_some(i))
-            .unwrap_or_else(|| {
-                let i = self.mesh.textures.len();
-                self.mesh.textures.push(name.to_string());
-                i
-            })
-    }
     fn process_triangle(&mut self, vert: [(isize, Option<isize>, Option<isize>); 3]) {
         let v = vert.map(|(v, _, _)| self.lookup_vertex(v).into());
         let t = vert.map(|(_, t, _)| t.map(|t| self.lookup_uv(t)).unwrap_or_default());
@@ -325,10 +313,15 @@ impl ObjLoader {
                 Some(Item::Face(face)) => self.process_face(face),
                 Some(Item::MtlLib(mtl_path)) => {
                     for mtl in MtlLoader::default().parse(path, &mtl_path) {
-                        let texture = mtl.texture.as_ref().map(|name| self.lookup_texture(&name));
+                        let texture = mtl
+                            .texture
+                            .as_ref()
+                            .map(|name| mesh::Texture::from_file(name, Some(path)));
                         self.materials.push(mtl);
                         self.mesh.triangles.push(Vec::new());
-                        self.mesh.materials.push(mesh::Material { texture });
+                        self.mesh
+                            .materials
+                            .push(Rc::new(mesh::Material { texture }));
                     }
                 }
                 Some(Item::UseMtl(material)) => {

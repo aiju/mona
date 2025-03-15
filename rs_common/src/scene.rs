@@ -3,7 +3,7 @@ use crate::{
     geometry::Matrix,
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
-    mesh::LoadedMesh,
+    mesh::{Mesh, Texture},
     render::{Backend, Context, TextureId},
     *,
 };
@@ -21,7 +21,7 @@ pub trait Scene<B: Backend> {
 pub fn create<B: Backend>(
     spec: &str,
     context: &mut Context<B>,
-    loader: impl AssetLoader,
+    loader: &mut AssetLoader,
 ) -> Option<Box<dyn Scene<B>>> {
     let (name, arg) = match spec.split_once(':') {
         Some((a, b)) => (a, Some(b)),
@@ -107,9 +107,10 @@ pub struct Cube {
 }
 
 impl Cube {
-    fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader) -> Cube {
-        let image = loader.load_texture("cat").unwrap();
-        let texture = context.load_texture(image).unwrap();
+    fn new<B: Backend>(context: &mut Context<B>, loader: &mut AssetLoader) -> Cube {
+        let image = Texture::from_file("cat", None);
+        image.load_backend(context, loader);
+        let texture = image.texture_id();
         Cube { texture, time: 0.0 }
     }
 }
@@ -137,9 +138,10 @@ pub struct CatRoom {
 }
 
 impl CatRoom {
-    fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader) -> CatRoom {
-        let image = loader.load_texture("cat").unwrap();
-        let texture = context.load_texture(image).unwrap();
+    fn new<B: Backend>(context: &mut Context<B>, loader: &mut AssetLoader) -> CatRoom {
+        let image = Texture::from_file("cat", None);
+        image.load_backend(context, loader);
+        let texture = image.texture_id();
         CatRoom { texture, time: 0.0 }
     }
 }
@@ -163,7 +165,7 @@ impl<B: Backend> Scene<B> for CatRoom {
 }
 
 pub struct ObjScene {
-    model: LoadedMesh,
+    model: Mesh,
     time: f64,
     x: f64,
     y: f64,
@@ -173,8 +175,9 @@ pub struct ObjScene {
 }
 
 impl ObjScene {
-    fn new<B: Backend>(context: &mut Context<B>, loader: impl AssetLoader, path: &str) -> Self {
-        let model = obj_loader::load_obj_file(path).load(context, loader);
+    fn new<B: Backend>(context: &mut Context<B>, loader: &mut AssetLoader, path: &str) -> Self {
+        let model = obj_loader::load_obj_file(path);
+        model.load(context, loader);
         Self {
             model,
             time: Default::default(),
@@ -208,7 +211,7 @@ impl<B: Backend> Scene<B> for ObjScene {
                     .transform(view)
                 })
                 .collect();
-            context.draw().opt_textured(material.texture).run(&v);
+            context.draw().opt_textured(material.texture_id()).run(&v);
         }
     }
     fn update(&mut self, delta: f64, input: &InputState) {
@@ -233,7 +236,7 @@ impl<B: Backend> Scene<B> for ObjScene {
 }
 
 pub struct GltfScene {
-    model: LoadedMesh,
+    model: Mesh,
     time: f64,
     x: f64,
     y: f64,
@@ -243,12 +246,13 @@ pub struct GltfScene {
 }
 
 impl GltfScene {
-    fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader, path: &str) -> Self {
-        let file = loader.open_file(path, None).unwrap();
+    fn new<B: Backend>(context: &mut Context<B>, loader: &mut AssetLoader, path: &str) -> Self {
+        let file = loader.open_file(path).unwrap();
         let importer =
-            GltfImporter::from_reader(file, &mut loader, Some(path.to_string())).unwrap();
+            GltfImporter::from_reader(file, loader, Some(path.to_string())).unwrap();
         let scene = importer.root_scene().unwrap().unwrap();
-        let model = scene.to_mesh().load(context, loader);
+        let model = scene.to_mesh();
+        model.load(context, loader);
         Self {
             model,
             time: Default::default(),
@@ -282,7 +286,7 @@ impl<B: Backend> Scene<B> for GltfScene {
                     .transform(view)
                 })
                 .collect();
-            context.draw().opt_textured(material.texture).run(&v);
+            context.draw().opt_textured(material.texture_id()).run(&v);
         }
     }
     fn update(&mut self, delta: f64, input: &InputState) {

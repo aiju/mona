@@ -81,7 +81,7 @@ pub struct Tetris {
 }
 
 impl Tetris {
-    pub fn new<B: Backend>(_context: &mut Context<B>, _loader: impl AssetLoader) -> Self {
+    pub fn new<B: Backend>(_context: &mut Context<B>, _loader: &mut AssetLoader) -> Self {
         Tetris {
             field: Field::empty(8, 13),
             active_piece: 0,

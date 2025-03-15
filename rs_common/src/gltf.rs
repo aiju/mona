@@ -1,7 +1,7 @@
 use crate::{
     assets::{AssetLoader, AssetLoaderError},
     geometry::{Matrix, Vec2, Vec3, Vec4},
-    mesh::{self, Color},
+    mesh::{self, Color, Texture, TextureState},
 };
 use binary::Accessor;
 use itertools::Itertools;
@@ -15,11 +15,6 @@ use thiserror::Error;
 
 mod binary;
 mod json;
-
-pub struct Texture {
-    id: json::TextureId,
-    image: String,
-}
 
 pub struct Material {
     id: Option<json::MaterialId>,
@@ -61,9 +56,9 @@ pub struct Node {
     global_matrix: Matrix,
 }
 
-pub struct GltfImporter<L> {
+pub struct GltfImporter<'a> {
     json: json::Root,
-    loader: RefCell<L>,
+    loader: &'a mut AssetLoader,
     file_name: Option<String>,
     buffers: RefCell<HashMap<json::BufferId, Rc<Vec<u8>>>>,
     textures: RefCell<HashMap<json::TextureId, Rc<Texture>>>,
@@ -92,7 +87,7 @@ macro_rules! gltf_unwrap {
     ( $e:expr ) => {
         match $e {
             Some(x) => x,
-            None => gltf_abort!()
+            None => gltf_abort!(),
         }
     };
 }
@@ -131,12 +126,12 @@ fn get_or_insert<K: Eq + std::hash::Hash, V: Clone>(
     }
 }
 
-impl<L: AssetLoader> GltfImporter<L> {
-    fn new(json: json::Root, loader: L, file_name: Option<String>) -> Self {
+impl<'a> GltfImporter<'a> {
+    fn new(json: json::Root, loader: &'a mut AssetLoader, file_name: Option<String>) -> Self {
         GltfImporter {
             json,
             file_name,
-            loader: RefCell::new(loader),
+            loader,
             buffers: Default::default(),
             textures: Default::default(),
             materials: Default::default(),
@@ -164,7 +159,7 @@ impl<L: AssetLoader> GltfImporter<L> {
     }
     pub fn from_reader(
         mut reader: impl std::io::Read,
-        loader: L,
+        loader: &'a mut AssetLoader,
         file_name: Option<String>,
     ) -> Result<Self, Error> {
         let mut buf = vec![0; 12];
@@ -195,8 +190,7 @@ impl<L: AssetLoader> GltfImporter<L> {
             let name = gltf_unwrap!(buffer.uri.as_ref());
             let mut file = self
                 .loader
-                .borrow_mut()
-                .open_file(name, self.file_name.as_ref().map(|x| &**x))?;
+                .open_file_relative(name, self.file_name.as_ref().map(|x| &**x))?;
             let mut buf = vec![0; buffer.byte_length];
             file.read_exact(&mut buf)?;
             Ok(Rc::new(buf))
@@ -288,10 +282,17 @@ impl<L: AssetLoader> GltfImporter<L> {
         get_or_insert(&self.textures, id, || {
             let texture = self.json.texture(id)?;
             let image = self.json.image(gltf_unwrap!(texture.source))?;
-            Ok(Rc::new(Texture {
-                id,
-                image: gltf_unwrap!(image.uri.clone()),
-            }))
+            if let Some(uri) = &image.uri {
+                gltf_assert!(image.buffer_view.is_none());
+                Ok(Texture::from_file(uri, self.file_name.as_deref()))
+            } else {
+                let buffer_view = self.json.buffer_view(gltf_unwrap!(image.buffer_view))?;
+                let buffer = self.buffer(buffer_view.buffer)?;
+                let data = buffer[buffer_view.byte_offset..buffer_view.byte_offset + buffer_view.byte_length].to_vec();
+                Ok(Rc::new(Texture {
+                    state: RefCell::new(TextureState::Memory(data)),
+                }))
+            }
         })
     }
     fn material(&self, id: json::MaterialId) -> Result<Rc<Material>, Error> {
@@ -388,14 +389,9 @@ fn translate_material(
     *cache.entry(material.id).or_insert_with(|| {
         let idx = mesh.materials.len();
         mesh.triangles.push(vec![]);
-        if let Some(t) = &material.texture {
-            mesh.materials.push(mesh::Material {
-                texture: Some(mesh.textures.len()),
-            });
-            mesh.textures.push(t.image.clone());
-        } else {
-            mesh.materials.push(mesh::Material { texture: None });
-        }
+        mesh.materials.push(Rc::new(mesh::Material {
+            texture: material.texture.clone(),
+        }));
         idx
     })
 }
@@ -409,9 +405,8 @@ impl Node {
     }
     pub fn to_mesh(&self) -> mesh::Mesh {
         let mut mesh_mesh = mesh::Mesh {
-            triangles: vec![vec![]],
-            materials: vec![mesh::Material::default()],
-            textures: vec![],
+            triangles: vec![],
+            materials: vec![],
         };
         let mut materials = HashMap::new();
         self.walk(&mut |node| {

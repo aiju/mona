@@ -1,7 +1,15 @@
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    io::{BufRead, BufReader, Cursor, Seek},
+    path::PathBuf,
+    rc::{Rc, Weak},
+};
+
 use crate::{
-    assets::AssetLoader,
+    assets::{AssetLoader, resolve_path},
     geometry::{Vec2, Vec3},
-    render::{Backend, Context, TextureId},
+    render::{self, Backend, Context, TextureId},
 };
 
 #[repr(C)]
@@ -57,21 +65,22 @@ impl From<[f64; 4]> for Color {
 }
 
 #[derive(Clone, Debug)]
-pub struct Material<T> {
-    pub texture: Option<T>,
-}
-impl<T> Material<T> {
-    fn map_texture<S>(&self, fun: impl Fn(&T) -> S) -> Material<S> {
-        Material {
-            texture: self.texture.as_ref().map(fun),
-        }
-    }
+pub enum TextureState {
+    File(PathBuf),
+    Memory(Vec<u8>),
+    RenderTexture(render::Texture<'static>),
+    Backend(TextureId),
+    Error,
 }
 
-impl<T> Default for Material<T> {
-    fn default() -> Self {
-        Self { texture: Default::default() }
-    }
+#[derive(Debug)]
+pub struct Texture {
+    pub state: RefCell<TextureState>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Material {
+    pub texture: Option<Rc<Texture>>,
 }
 
 #[derive(Clone, Debug)]
@@ -84,36 +93,114 @@ pub struct Triangle {
 #[derive(Default, Clone, Debug)]
 pub struct Mesh {
     pub triangles: Vec<Vec<Triangle>>,
-    pub materials: Vec<Material<usize>>,
-    pub textures: Vec<String>,
+    pub materials: Vec<Rc<Material>>,
 }
 
-impl Mesh {
-    pub fn load<B: Backend>(
-        &self,
-        context: &mut Context<B>,
-        mut loader: impl AssetLoader,
-    ) -> LoadedMesh {
-        let textures: Vec<_> = self
-            .textures
-            .iter()
-            .map(|name| {
-                let texture = loader.load_texture(name).unwrap();
-                context.load_texture(texture).unwrap()
-            })
-            .collect();
-        LoadedMesh {
-            triangles: self.triangles.clone(),
-            materials: self
-                .materials
-                .iter()
-                .map(|m| m.map_texture(|&n| textures[n]))
-                .collect(),
+fn image_reader_to_render_texture<R: BufRead + Seek>(
+    image_reader: image::ImageReader<R>,
+) -> render::Texture<'static> {
+    let image = image_reader
+        .with_guessed_format()
+        .unwrap()
+        .decode()
+        .unwrap()
+        .into_rgba8()
+        .into_flat_samples();
+    render::Texture {
+        data: image.samples.into(),
+        ty: render::TextureType {
+            width: image.layout.width as usize,
+            height: image.layout.height as usize,
+            stride: image.layout.height_stride / 4,
+        },
+    }
+}
+
+fn replace_with<T>(dest: &mut T, substitute: T, fun: impl FnOnce(T) -> T) {
+    let value = std::mem::replace(dest, substitute);
+    *dest = fun(value);
+}
+
+// FIXME: should be global, not thread local
+thread_local! {
+    pub static TEXTURE_BY_NAME: RefCell<HashMap<PathBuf, Weak<Texture>>> = RefCell::new(HashMap::new());
+}
+
+impl Texture {
+    pub fn from_file(name: &str, parent: Option<&str>) -> Rc<Texture> {
+        let path = resolve_path(name, parent);
+        TEXTURE_BY_NAME.with_borrow_mut(|texture_by_name| {
+            if let Some(t) = texture_by_name.get(&path).and_then(Weak::upgrade) {
+                t
+            } else {
+                let texture = Rc::new(Texture {
+                    state: RefCell::new(TextureState::File(path.clone())),
+                });
+                texture_by_name.insert(path, Rc::downgrade(&texture));
+                texture
+            }
+        })
+    }
+    pub fn from_vec(vec: Vec<u8>) -> Rc<Texture> {
+        Rc::new(Texture {
+            state: RefCell::new(TextureState::Memory(vec)),
+        })
+    }
+    pub fn load(&self, loader: &mut AssetLoader) {
+        replace_with(
+            &mut *self.state.borrow_mut(),
+            TextureState::Error,
+            |state| match state {
+                TextureState::File(path) => {
+                    let file = loader.open_file(&path).unwrap();
+                    println!("{:?}", path);
+                    let image_reader = image::ImageReader::new(BufReader::new(file));
+                    TextureState::RenderTexture(image_reader_to_render_texture(image_reader))
+                }
+                TextureState::Memory(data) => {
+                    let image_reader = image::ImageReader::new(Cursor::new(data));
+                    TextureState::RenderTexture(image_reader_to_render_texture(image_reader))
+                }
+                TextureState::RenderTexture(_) | TextureState::Backend(_) | TextureState::Error => {
+                    state
+                }
+            },
+        )
+    }
+    pub fn load_backend<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
+        self.load(loader);
+        replace_with(
+            &mut *self.state.borrow_mut(),
+            TextureState::Error,
+            |state| match state {
+                TextureState::File(_) | TextureState::Memory(_) => unreachable!(),
+                TextureState::RenderTexture(texture) => {
+                    TextureState::Backend(context.load_texture(texture).unwrap())
+                }
+                TextureState::Backend(_) | TextureState::Error => state,
+            },
+        )
+    }
+    pub fn texture_id(&self) -> TextureId {
+        match *self.state.borrow() {
+            TextureState::Backend(texture_id) => texture_id,
+            _ => unreachable!(),
         }
     }
 }
 
-pub struct LoadedMesh {
-    pub triangles: Vec<Vec<Triangle>>,
-    pub materials: Vec<Material<TextureId>>,
+impl Material {
+    pub fn texture_id(&self) -> Option<TextureId> {
+        self.texture.as_ref().map(|t| t.texture_id())
+    }
+}
+
+impl Mesh {
+    pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
+        for material in &self.materials {
+            if let Some(tex) = &material.texture {
+                tex.load_backend(context, loader);
+            }
+        }
+    }
 }
