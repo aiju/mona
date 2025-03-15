@@ -1,10 +1,5 @@
 use crate::{
-    assets::AssetLoader,
-    geometry::Matrix,
-    input::{InputEvent, InputState, Key},
-    mesh::LoadedMesh,
-    render::{Backend, Context, TextureId},
-    *,
+    assets::AssetLoader, geometry::Matrix, gltf::GltfImporter, input::{InputEvent, InputState, Key}, mesh::LoadedMesh, render::{Backend, Context, TextureId}, *
 };
 
 #[allow(unused_variables)]
@@ -239,9 +234,11 @@ pub struct GltfScene {
 }
 
 impl GltfScene {
-    fn new<B: Backend>(context: &mut Context<B>, loader: impl AssetLoader, path: &str) -> Self {
-        let gltf = crate::gltf::Gltf::from_file(path).unwrap();
-        let model = gltf.gather_meshes().unwrap().load(context, loader);
+    fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader, path: &str) -> Self {
+        let file = loader.open_file(path, None).unwrap();
+        let importer = GltfImporter::from_reader(file, &mut loader, Some(path.to_string())).unwrap();
+        let scene = importer.root_scene().unwrap().unwrap();
+        let model = scene.to_mesh().load(context, loader);
         Self {
             model,
             time: Default::default(),

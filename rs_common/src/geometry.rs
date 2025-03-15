@@ -190,6 +190,20 @@ impl std::ops::Mul<Matrix> for Matrix {
     }
 }
 
+impl std::ops::Mul<Vec3> for Matrix {
+    type Output = Vec3;
+
+    fn mul(self, rhs: Vec3) -> Self::Output {
+        let mut out = [self.0[0][3], self.0[1][3], self.0[2][3]];
+        for i in 0..3 {
+            for j in 0..3 {
+                out[i] += self.0[i][j] * rhs[j];
+            }
+        }
+        out.into()
+    }
+}
+
 impl std::ops::Mul<Vec4> for Matrix {
     type Output = Vec4;
 

@@ -9,7 +9,7 @@ use rs_common::{
     render::{Backend, Context, Texture, TextureType},
     *,
 };
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 pub mod debug;
 pub mod evdev;
@@ -78,6 +78,7 @@ impl std::ops::DerefMut for HwBackend {
 impl HwBackend {
     fn new(mut hw: Hw, cli: Cli) -> HwBackend {
         hw.set_reg(R_DEPTH_MODE, if cli.disable_depth_buffer { 0 } else { 4 });
+        hw.set_reg(R_TEXTURE_EN, 0);
         hw.set_reg(R_STATS_ENABLED, 0);
         let mut vram_alloc = VramAlloc::new(MEM_START as usize, MEM_LEN as usize);
         // FIXME: don't statically allocate command buffer
@@ -206,8 +207,18 @@ impl Backend for HwBackend {
 #[derive(Default)]
 struct DriverAssetLoader {}
 impl AssetLoader for DriverAssetLoader {
-    type Error = ();
-    fn load_texture(&mut self, name: &str) -> Result<render::Texture, Self::Error> {
+    type File = std::fs::File;
+    
+    fn open_file(&mut self, name: &str, parent: Option<&str>) -> Result<Self::File, assets::AssetLoaderError> {
+        let mut path = PathBuf::default();
+        if let Some(p) = parent {
+            path.push(PathBuf::from(p).parent().unwrap());
+        }
+        path.push(name);
+        Ok(std::fs::File::open(path)?)
+    }
+
+    fn load_texture(&mut self, name: &str) -> Result<render::Texture, assets::AssetLoaderError> {
         let image = image::ImageReader::open(std::path::Path::new("/mona/aiju/models").join(name))
             .unwrap()
             .decode()

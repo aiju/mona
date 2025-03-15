@@ -1,366 +1,75 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{BufReader, Read},
-    marker::PhantomData,
-    path::Path,
+use crate::{
+    assets::{AssetLoader, AssetLoaderError},
+    geometry::{Matrix, Vec2, Vec3, Vec4},
+    mesh::{self, Color},
 };
-
+use binary::Accessor;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, hash_map::Entry},
+    io::Read,
+    rc::{Rc, Weak},
+};
 use thiserror::Error;
 
-use crate::{
-    geometry::{Matrix, Vec2, Vec3, Vec4},
-    mesh::{self, Color, Triangle},
-};
+mod binary;
+mod json;
 
-type Extras = Option<serde_json::Value>;
-type Extensions = Option<serde_json::Value>;
-
-macro_rules! define_id {
-    ( $x:ident ) => {
-        #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-        #[serde(transparent)]
-        struct $x(usize);
-    };
+pub struct Texture {
+    id: json::TextureId,
+    image: String,
 }
 
-define_id!(SceneId);
-define_id!(NodeId);
-define_id!(CameraId);
-define_id!(MeshId);
-define_id!(AccessorId);
-define_id!(BufferViewId);
-define_id!(BufferId);
-define_id!(MaterialId);
-define_id!(TextureId);
-define_id!(SamplerId);
-define_id!(ImageId);
-define_id!(SkinId);
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfRoot {
-    asset: GltfAsset,
-    scene: Option<SceneId>,
-    #[serde(default)]
-    scenes: Vec<GltfScene>,
-    #[serde(default)]
-    nodes: Vec<GltfNode>,
-    #[serde(default)]
-    meshes: Vec<GltfMesh>,
-    #[serde(default)]
-    accessors: Vec<GltfAccessor>,
-    #[serde(default)]
-    buffer_views: Vec<GltfBufferView>,
-    #[serde(default)]
-    buffers: Vec<GltfBuffer>,
-    #[serde(default)]
-    materials: Vec<GltfMaterial>,
-    #[serde(default)]
-    textures: Vec<GltfTexture>,
-    #[serde(default)]
-    samplers: Vec<GltfSampler>,
-    #[serde(default)]
-    images: Vec<GltfImage>,
-    extras: Extras,
-    extensions: Extensions,
+pub struct Material {
+    id: Option<json::MaterialId>,
+    texture: Option<Rc<Texture>>,
+    texcoord_idx: usize,
+    color: Color,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfAsset {
-    version: String,
-    copyright: Option<String>,
-    generator: Option<String>,
-    min_version: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
+thread_local! {
+    static DEFAULT_MATERIAL: Rc<Material> = Rc::new(Material {
+        id: None,
+        texture: None,
+        color: Color::WHITE,
+        texcoord_idx: 0,
+    });
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct GltfScene {
-    #[serde(default)]
-    nodes: Vec<NodeId>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
+fn default_material() -> Rc<Material> {
+    DEFAULT_MATERIAL.with(Clone::clone)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct GltfNode {
-    camera: Option<CameraId>,
-    #[serde(default)]
-    children: Vec<NodeId>,
-    skin: Option<SkinId>,
-    matrix: Option<[f64; 16]>,
-    mesh: Option<MeshId>,
-    rotation: Option<[f64; 4]>,
-    scale: Option<[f64; 3]>,
-    translation: Option<[f64; 3]>,
-    #[serde(default)]
-    weights: Vec<f64>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
+pub struct Primitive {
+    material: Rc<Material>,
+    indices: Vec<u32>,
+    position: Vec<Vec3>,
+    texcoord: Vec<Vec<Vec2>>,
+    color: Vec<Vec4>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct GltfMesh {
-    primitives: Vec<GltfMeshPrimitive>,
-    #[serde(default)]
-    weights: Vec<f64>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
+pub struct Mesh {
+    primitives: Vec<Primitive>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct GltfMeshPrimitive {
-    attributes: HashMap<String, AccessorId>,
-    indices: Option<AccessorId>,
-    material: Option<MaterialId>,
-    #[serde(default)]
-    mode: GltfMeshPrimitiveMode,
-    #[serde(default)]
-    targets: Vec<serde_json::Value>,
-    extras: Extras,
-    extensions: Extensions,
+pub struct Node {
+    mesh: Option<Rc<Mesh>>,
+    parent: Option<Weak<Node>>,
+    children: Vec<Rc<Node>>,
+    local_matrix: Matrix,
+    global_matrix: Matrix,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
-#[repr(u8)]
-enum GltfMeshPrimitiveMode {
-    Points = 0,
-    Lines = 1,
-    LineLoop = 2,
-    LineStrip = 3,
-    Triangles = 4,
-    TriangleStrip = 5,
-    TriangleFan = 6,
-}
-
-impl Default for GltfMeshPrimitiveMode {
-    fn default() -> Self {
-        GltfMeshPrimitiveMode::Triangles
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfAccessor {
-    buffer_view: Option<BufferViewId>,
-    #[serde(default)]
-    byte_offset: usize,
-    component_type: GltfComponentType,
-    #[serde(default)]
-    normalized: bool,
-    count: usize,
-    #[serde(rename = "type")]
-    type_: GltfAccessorType,
-    max: Option<Vec<f64>>,
-    min: Option<Vec<f64>>,
-    name: Option<String>,
-    sparse: Option<serde_json::Value>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfBufferView {
-    buffer: BufferId,
-    #[serde(default)]
-    byte_offset: usize,
-    byte_length: usize,
-    byte_stride: Option<usize>,
-    target: Option<u32>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfMaterial {
-    name: Option<String>,
-    #[serde(default)]
-    pbr_metallic_roughness: GltfPbrMetallicRoughness,
-    normal_texture: Option<GltfTextureInfo>,
-    occlusion_texture: Option<GltfTextureInfo>,
-    emissive_texture: Option<GltfTextureInfo>,
-    emissive_factor: Option<[f64; 3]>,
-    #[serde(default)]
-    alpha_mode: GltfAlphaMode,
-    #[serde(default = "default_alpha_cutoff")]
-    alpha_cutoff: f64,
-    #[serde(default)]
-    double_sided: bool,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfTextureInfo {
-    index: TextureId,
-    #[serde(default)]
-    tex_coord: usize,
-    scale: Option<f64>,
-    strength: Option<f64>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfPbrMetallicRoughness {
-    #[serde(default = "default_base_color_factor")]
-    base_color_factor: [f64; 4],
-    base_color_texture: Option<GltfTextureInfo>,
-    #[serde(default = "one")]
-    metallic_factor: f64,
-    #[serde(default = "one")]
-    roughness_factor: f64,
-    metallic_roughness_texture: Option<GltfTextureInfo>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-impl Default for GltfPbrMetallicRoughness {
-    fn default() -> GltfPbrMetallicRoughness {
-        GltfPbrMetallicRoughness {
-            base_color_factor: default_base_color_factor(),
-            base_color_texture: None,
-            metallic_factor: 1.0,
-            roughness_factor: 1.0,
-            metallic_roughness_texture: None,
-            extras: None,
-            extensions: None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum GltfAlphaMode {
-    OPAQUE,
-    MASK,
-    BLEND,
-}
-
-impl Default for GltfAlphaMode {
-    fn default() -> Self {
-        GltfAlphaMode::OPAQUE
-    }
-}
-
-fn default_base_color_factor() -> [f64; 4] {
-    [1.0; 4]
-}
-fn one() -> f64 {
-    1.0
-}
-fn default_alpha_cutoff() -> f64 {
-    0.5
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfTexture {
-    sampler: Option<SamplerId>,
-    source: Option<ImageId>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfSampler {
-    mag_filter: Option<u32>,
-    min_filter: Option<u32>,
-    wrap_s: Option<u32>,
-    wrap_t: Option<u32>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfImage {
-    uri: Option<String>,
-    mine_type: Option<String>,
-    buffer_view: Option<BufferViewId>,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
-pub enum GltfComponentType {
-    I8 = 5120,
-    U8 = 5121,
-    I16 = 5122,
-    U16 = 5123,
-    U32 = 5125,
-    F32 = 5126,
-}
-
-impl GltfComponentType {
-    fn len(self) -> usize {
-        match self {
-            GltfComponentType::I8 => 1,
-            GltfComponentType::U8 => 1,
-            GltfComponentType::I16 => 2,
-            GltfComponentType::U16 => 2,
-            GltfComponentType::U32 => 4,
-            GltfComponentType::F32 => 4,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GltfAccessorType {
-    SCALAR,
-    VEC2,
-    VEC3,
-    VEC4,
-    MAT2,
-    MAT3,
-    MAT4,
-}
-
-impl GltfAccessorType {
-    fn len(self) -> usize {
-        match self {
-            GltfAccessorType::SCALAR => 1,
-            GltfAccessorType::VEC2 => 2,
-            GltfAccessorType::VEC3 => 3,
-            GltfAccessorType::VEC4 => 4,
-            GltfAccessorType::MAT2 => 4,
-            GltfAccessorType::MAT3 => 9,
-            GltfAccessorType::MAT4 => 16,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GltfBuffer {
-    uri: Option<String>,
-    byte_length: usize,
-    name: Option<String>,
-    extras: Extras,
-    extensions: Extensions,
-}
-
-pub struct Gltf {
-    json: GltfRoot,
-    buffers: Vec<Vec<u8>>,
+pub struct GltfImporter<L> {
+    json: json::Root,
+    loader: RefCell<L>,
+    file_name: Option<String>,
+    buffers: RefCell<HashMap<json::BufferId, Rc<Vec<u8>>>>,
+    textures: RefCell<HashMap<json::TextureId, Rc<Texture>>>,
+    materials: RefCell<HashMap<json::MaterialId, Rc<Material>>>,
+    meshes: RefCell<HashMap<json::MeshId, Rc<Mesh>>>,
+    nodes: RefCell<HashMap<json::NodeId, Rc<Node>>>,
 }
 
 #[derive(Error, Debug)]
@@ -369,197 +78,288 @@ pub enum Error {
     JsonError(#[from] serde_json::Error),
     #[error("io error")]
     IoError(#[from] std::io::Error),
-    #[error("missing buffer")]
-    MissingBuffer,
     #[error("index error")]
     IndexError,
+    #[error("invalid file")]
+    InvalidFile,
+    #[error("unsupported feature")]
+    UnsupportedFeature,
+    #[error("asset loader error")]
+    AssetLoaderError(#[from] AssetLoaderError),
 }
 
-macro_rules! define_id_lookup {
-    ( $name:ident, $id_type:ident, $result_type:ident, $array:ident ) => {
-        fn $name(&self, id: $id_type) -> Result<&$result_type, Error> {
-            self.$array.get(id.0).ok_or(Error::IndexError)
+macro_rules! gltf_unwrap {
+    ( $e:expr ) => {
+        match $e {
+            Some(x) => x,
+            None => gltf_abort!()
         }
     };
 }
 
-impl GltfRoot {
-    define_id_lookup!(scene, SceneId, GltfScene, scenes);
-    define_id_lookup!(node, NodeId, GltfNode, nodes);
-    define_id_lookup!(mesh, MeshId, GltfMesh, meshes);
-    define_id_lookup!(accessor, AccessorId, GltfAccessor, accessors);
-    define_id_lookup!(buffer_view, BufferViewId, GltfBufferView, buffer_views);
-    define_id_lookup!(buffer, BufferId, GltfBuffer, buffers);
-    define_id_lookup!(material, MaterialId, GltfMaterial, materials);
-    define_id_lookup!(texture, TextureId, GltfTexture, textures);
-    define_id_lookup!(sampler, SamplerId, GltfSampler, samplers);
-    define_id_lookup!(image, ImageId, GltfImage, images);
+macro_rules! gltf_assert {
+    ( $e:expr ) => {
+        $e.then_some(()).ok_or(Error::InvalidFile)?
+    };
 }
 
-impl Gltf {
-    fn load_buffers(path: &str, json: &GltfRoot) -> Result<Vec<Vec<u8>>, Error> {
-        let mut buffers = Vec::new();
-        for buffer in &json.buffers {
-            let name = buffer.uri.as_ref().ok_or(Error::MissingBuffer)?;
-            let buf_path = Path::new(path).parent().unwrap().join(name);
-            let mut file = std::fs::File::open(buf_path)?;
+macro_rules! gltf_abort {
+    () => {{
+        gltf_assert!(false);
+        unreachable!()
+    }};
+}
+
+macro_rules! gltf_assert_supported {
+    ( $e:expr ) => {
+        $e.then_some(()).ok_or(Error::UnsupportedFeature)?
+    };
+}
+
+fn get_or_insert<K: Eq + std::hash::Hash, V: Clone>(
+    map: &RefCell<HashMap<K, V>>,
+    key: K,
+    fun: impl FnOnce() -> Result<V, Error>,
+) -> Result<V, Error> {
+    match map.borrow_mut().entry(key) {
+        Entry::Occupied(entry) => Ok(entry.get().clone()),
+        Entry::Vacant(entry) => {
+            let value = fun()?;
+            entry.insert(value.clone());
+            Ok(value)
+        }
+    }
+}
+
+impl<L: AssetLoader> GltfImporter<L> {
+    fn new(json: json::Root, loader: L, file_name: Option<String>) -> Self {
+        GltfImporter {
+            json,
+            file_name,
+            loader: RefCell::new(loader),
+            buffers: Default::default(),
+            textures: Default::default(),
+            materials: Default::default(),
+            meshes: Default::default(),
+            nodes: Default::default(),
+        }
+    }
+    fn read_chunk(
+        reader: &mut impl std::io::Read,
+        remaining_len: &mut u32,
+        expected_type: u32,
+    ) -> Result<Vec<u8>, Error> {
+        let mut buf = [0; 8];
+        reader.read_exact(&mut buf)?;
+        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let ty = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let len_w_header = len.checked_add(8);
+        gltf_assert!(len_w_header.is_some());
+        gltf_assert!(*remaining_len >= len_w_header.unwrap());
+        gltf_assert!(ty == expected_type);
+        *remaining_len -= len_w_header.unwrap();
+        let mut buf = vec![0; len as usize];
+        reader.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+    pub fn from_reader(
+        mut reader: impl std::io::Read,
+        loader: L,
+        file_name: Option<String>,
+    ) -> Result<Self, Error> {
+        let mut buf = vec![0; 12];
+        reader.read_exact(&mut buf)?;
+        if u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) == 0x46546C67 {
+            let mut remaining_len = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
+            remaining_len = gltf_unwrap!(remaining_len.checked_sub(12));
+            buf = Self::read_chunk(&mut reader, &mut remaining_len, 0x4E4F534A)?;
+            let json = serde_json::from_slice(&buf)?;
+            let gltf = Self::new(json, loader, file_name);
+            if remaining_len > 0 {
+                buf = Self::read_chunk(&mut reader, &mut remaining_len, 0x004E4942)?;
+                gltf_assert!(gltf.json.buffers.len() > 0 && gltf.json.buffers[0].uri.is_none());
+                gltf.buffers
+                    .borrow_mut()
+                    .insert(json::BufferId(0), Rc::new(buf));
+            }
+            Ok(gltf)
+        } else {
+            reader.read_to_end(&mut buf)?;
+            let json = serde_json::from_slice(&buf)?;
+            Ok(Self::new(json, loader, file_name))
+        }
+    }
+    fn buffer(&self, id: json::BufferId) -> Result<Rc<Vec<u8>>, Error> {
+        get_or_insert(&self.buffers, id, || {
+            let buffer = self.json.buffer(id)?;
+            let name = gltf_unwrap!(buffer.uri.as_ref());
+            let mut file = self
+                .loader
+                .borrow_mut()
+                .open_file(name, self.file_name.as_ref().map(|x| &**x))?;
             let mut buf = vec![0; buffer.byte_length];
             file.read_exact(&mut buf)?;
-            buffers.push(buf);
-        }
-        Ok(buffers)
+            Ok(Rc::new(buf))
+        })
     }
-    pub fn from_reader(path: &str, reader: impl std::io::Read) -> Result<Gltf, Error> {
-        let json = serde_json::from_reader(reader)?;
-        let buffers = Self::load_buffers(path, &json)?;
-        Ok(Gltf { json, buffers })
-    }
-    pub fn from_file(path: &str) -> Result<Gltf, Error> {
-        let file = File::open(path)?;
-        let buf_reader = BufReader::new(file);
-        Self::from_reader(path, buf_reader)
-    }
-    fn accessor<T: GltfElement>(&self, index: AccessorId) -> Result<Accessor<'_, T>, Error> {
-        let accessor = self.json.accessor(index)?;
-        assert!(accessor.sparse.is_none());
+    fn accessor<T: Accessor>(&self, id: json::AccessorId) -> Result<Vec<T>, Error> {
+        let accessor = self.json.accessor(id)?;
         let buffer_view = self.json.buffer_view(accessor.buffer_view.unwrap())?;
         let buffer = self.json.buffer(buffer_view.buffer)?;
         let element_len = accessor.component_type.len() * accessor.type_.len();
         let byte_stride = buffer_view.byte_stride.unwrap_or(element_len);
-        assert!(byte_stride >= element_len);
+        gltf_assert!(byte_stride >= element_len);
         let expected_len = (byte_stride * accessor.count).saturating_sub(byte_stride - element_len);
         let provided_len = std::cmp::min(
             buffer.byte_length.saturating_sub(buffer_view.byte_offset),
             buffer_view.byte_length,
         );
-        assert!(expected_len >= provided_len);
-        assert!(accessor.component_type == T::COMPONENT_TYPE && accessor.type_ == T::ACCESSOR_TYPE);
-        Ok(Accessor {
-            data: &self.buffers[buffer_view.buffer.0]
-                [buffer_view.byte_offset..buffer_view.byte_offset + expected_len],
-            byte_stride,
-            count: accessor.count,
-            _phantom: PhantomData,
+        gltf_assert!(expected_len >= provided_len);
+        let data = self.buffer(buffer_view.buffer)?;
+        gltf_assert!(accessor.component_type == T::COMPONENT_TYPE);
+        gltf_assert!(accessor.type_ == T::ACCESSOR_TYPE);
+        Ok((0..accessor.count)
+            .map(|i| unsafe { T::read(&data[buffer_view.byte_offset + byte_stride * i..]) })
+            .collect())
+    }
+    fn index_accessor(&self, id: json::AccessorId) -> Result<Vec<u32>, Error> {
+        match self.json.accessor(id)?.component_type {
+            json::ComponentType::U8 => Ok(self
+                .accessor::<u8>(id)?
+                .into_iter()
+                .map(|x| x as u32)
+                .collect()),
+            json::ComponentType::U16 => Ok(self
+                .accessor::<u16>(id)?
+                .into_iter()
+                .map(|x| x as u32)
+                .collect()),
+            json::ComponentType::U32 => self.accessor(id),
+            _ => gltf_abort!(),
+        }
+    }
+    fn primitive_attribute_count(&self, primitive: &json::MeshPrimitive) -> Result<usize, Error> {
+        let mut count = None;
+        for (_, id) in &primitive.attributes {
+            let c1 = self.json.accessor(*id)?.count;
+            if let Some(c0) = count {
+                gltf_assert!(c0 == c1);
+            } else {
+                count = Some(c1);
+            }
+        }
+        Ok(gltf_unwrap!(count))
+    }
+    fn mesh(&self, id: json::MeshId) -> Result<Rc<Mesh>, Error> {
+        get_or_insert(&self.meshes, id, || {
+            let mesh = self.json.mesh(id)?;
+            let mut primitives = Vec::new();
+            for prim in &mesh.primitives {
+                gltf_assert_supported!(prim.mode == json::MeshPrimitiveMode::Triangles);
+                gltf_assert_supported!(prim.attributes.contains_key("POSITION"));
+                let material = prim
+                    .material
+                    .map_or(Ok(default_material()), |id| self.material(id))?;
+                let attr_count = self.primitive_attribute_count(prim)?;
+                let indices = prim.indices.map_or_else(
+                    || Ok((0..attr_count as u32).collect()),
+                    |id| self.index_accessor(id),
+                )?;
+                gltf_assert!(indices.len() % 3 == 0);
+                let position = self.accessor::<Vec3>(prim.attributes["POSITION"])?;
+                let mut texcoord = Vec::new();
+                let mut i = 0;
+                while let Some(&id) = prim.attributes.get(&format!("TEXCOORD_{}", i)) {
+                    texcoord.push(self.accessor(id)?);
+                    i += 1;
+                }
+                primitives.push(Primitive {
+                    material,
+                    indices,
+                    position,
+                    texcoord,
+                    color: Vec::new(),
+                });
+            }
+            Ok(Rc::new(Mesh { primitives }))
         })
     }
-    fn translate_materials(&self, mesh: &mut mesh::Mesh) -> Result<(), Error> {
-        for texture in &self.json.textures {
-            let image = self.json.image(texture.source.unwrap())?;
-            mesh.textures.push(image.uri.clone().unwrap());
-        }
-        for material in &self.json.materials {
-            let mut mesh_material = mesh::Material::default();
-            if let Some(texture) = &material.pbr_metallic_roughness.base_color_texture {
-                mesh_material.texture = Some(texture.index.0);
-            }
-            mesh.triangles.push(Vec::new());
-            mesh.materials.push(mesh_material);
-        }
-        Ok(())
+    fn texture(&self, id: json::TextureId) -> Result<Rc<Texture>, Error> {
+        get_or_insert(&self.textures, id, || {
+            let texture = self.json.texture(id)?;
+            let image = self.json.image(gltf_unwrap!(texture.source))?;
+            Ok(Rc::new(Texture {
+                id,
+                image: gltf_unwrap!(image.uri.clone()),
+            }))
+        })
     }
-    fn walk_nodes(
-        &self,
-        index: NodeId,
-        mut matrix: Matrix,
-        fun: &mut impl FnMut(&GltfNode, Matrix) -> Result<(), Error>,
-    ) -> Result<(), Error> {
-        let node = self.json.node(index)?;
-        matrix = matrix * node.local_matrix();
-        fun(node, matrix)?;
-        for child in &node.children {
-            self.walk_nodes(*child, matrix, fun)?;
-        }
-        Ok(())
-    }
-    fn material_color(&self, index: Option<MaterialId>) -> Result<Color, Error> {
-        if let Some(index) = index {
-            Ok(self
-                .json
-                .material(index)?
+    fn material(&self, id: json::MaterialId) -> Result<Rc<Material>, Error> {
+        get_or_insert(&self.materials, id, || {
+            let material = self.json.material(id)?;
+            let texture = material
                 .pbr_metallic_roughness
-                .base_color_factor
-                .into())
-        } else {
-            Ok(Color::WHITE)
-        }
-    }
-    fn texcoord_accessor(
-        &self,
-        p: &GltfMeshPrimitive,
-    ) -> Result<Option<Accessor<'_, [f32; 2]>>, Error> {
-        let Some(material_id) = p.material else {
-            return Ok(None);
-        };
-        let material = self.json.material(material_id)?;
-        let Some(tex_info) = &material.pbr_metallic_roughness.base_color_texture else {
-            return Ok(None);
-        };
-        let Some(&accessor_idx) = p
-            .attributes
-            .get(&format!("TEXCOORD_{}", tex_info.tex_coord))
-        else {
-            return Ok(None);
-        };
-        Ok(Some(self.accessor(accessor_idx)?))
-    }
-    fn gather_primitive(
-        &self,
-        p: &GltfMeshPrimitive,
-        matrix: Matrix,
-        mesh: &mut mesh::Mesh,
-    ) -> Result<(), Error> {
-        assert!(p.mode == GltfMeshPrimitiveMode::Triangles);
-        let index_accessor: Accessor<'_, u16> = self.accessor(p.indices.unwrap())?;
-        let position_accessor: Accessor<'_, [f32; 3]> = self.accessor(p.attributes["POSITION"])?;
-        let texcoord_accessor = self.texcoord_accessor(p)?;
-        let material_index = p.material.map(|x| x.0 + 1).unwrap_or_default();
-        let color: Color = self.material_color(p.material)?;
-        for ((p1, uv1), (p2, uv2), (p3, uv3)) in index_accessor
-            .iter()
-            .map(|i| {
-                let vec: Vec3 = position_accessor.get(i as usize).into();
-                let vec4: Vec4 = vec.into();
-                let tex_coord: Vec2 = texcoord_accessor
+                .base_color_texture
+                .as_ref()
+                .map(|info| self.texture(info.index))
+                .transpose()?;
+            let color = material.pbr_metallic_roughness.base_color_factor.into();
+            Ok(Rc::new(Material {
+                id: Some(id),
+                texcoord_idx: material
+                    .pbr_metallic_roughness
+                    .base_color_texture
                     .as_ref()
-                    .map(|a| a.get(i as usize))
-                    .unwrap_or_default()
-                    .into();
-                ((matrix * vec4).xyz(), tex_coord)
-            })
-            .tuples()
-        {
-            mesh.triangles[material_index].push(Triangle {
-                vertices: [p1, p2, p3],
-                uv: [uv1, uv2, uv3],
-                color: [color; 3],
-            });
-        }
-        Ok(())
+                    .map_or(0, |t| t.tex_coord),
+                texture,
+                color,
+            }))
+        })
     }
-    pub fn gather_meshes(&self) -> Result<mesh::Mesh, Error> {
-        let mut ret_mesh = mesh::Mesh {
-            triangles: vec![vec![]],
-            materials: vec![mesh::Material { texture: None }],
-            textures: vec![],
-        };
-        self.translate_materials(&mut ret_mesh)?;
-        let scene = self.json.scene(self.json.scene.unwrap())?;
-        for node in &scene.nodes {
-            self.walk_nodes(*node, Matrix::IDENTITY, &mut |node, matrix| {
-                if let Some(mesh_idx) = node.mesh {
-                    let mesh = self.json.mesh(mesh_idx)?;
-                    for primitives in &mesh.primitives {
-                        self.gather_primitive(&primitives, matrix, &mut ret_mesh)?;
-                    }
-                }
-                Ok(())
-            })?;
-        }
-        Ok(ret_mesh)
+    fn node(&self, id: json::NodeId, parent: Option<json::NodeId>) -> Result<Rc<Node>, Error> {
+        get_or_insert(&self.nodes, id, || {
+            let node = self.json.node(id)?;
+            let mesh = node.mesh.map(|id| self.mesh(id)).transpose()?;
+            let parent = parent.map(|id| Rc::downgrade(self.nodes.borrow().get(&id).unwrap()));
+            let children = node
+                .children
+                .iter()
+                .map(|c| self.node(*c, Some(id)))
+                .collect::<Result<Vec<_>, _>>()?;
+            let local_matrix = node.local_matrix();
+            let global_matrix = parent.clone().map_or(local_matrix, |n| {
+                n.upgrade().unwrap().global_matrix * local_matrix
+            });
+            Ok(Rc::new(Node {
+                mesh,
+                parent,
+                children,
+                local_matrix,
+                global_matrix,
+            }))
+        })
+    }
+    pub fn scene(&self, id: json::SceneId) -> Result<Node, Error> {
+        let scene = self.json.scene(id)?;
+        let nodes = scene
+            .nodes
+            .iter()
+            .map(|id| self.node(*id, None))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Node {
+            children: nodes,
+            mesh: None,
+            parent: None,
+            local_matrix: Matrix::IDENTITY,
+            global_matrix: Matrix::IDENTITY,
+        })
+    }
+    pub fn root_scene(&self) -> Result<Option<Node>, Error> {
+        self.json.scene.map(|id| self.scene(id)).transpose()
     }
 }
 
-impl GltfNode {
+impl json::Node {
     fn local_matrix(&self) -> Matrix {
         if let Some(matrix) = self.matrix {
             matrix.into()
@@ -580,69 +380,61 @@ impl GltfNode {
     }
 }
 
-pub trait GltfElement {
-    const COMPONENT_TYPE: GltfComponentType;
-    const ACCESSOR_TYPE: GltfAccessorType;
-    unsafe fn read(data: &[u8]) -> Self;
+fn translate_material(
+    material: &Material,
+    mesh: &mut mesh::Mesh,
+    cache: &mut HashMap<Option<json::MaterialId>, usize>,
+) -> usize {
+    *cache.entry(material.id).or_insert_with(|| {
+        let idx = mesh.materials.len();
+        mesh.triangles.push(vec![]);
+        if let Some(t) = &material.texture {
+            mesh.materials.push(mesh::Material {
+                texture: Some(mesh.textures.len()),
+            });
+            mesh.textures.push(t.image.clone());
+        } else {
+            mesh.materials.push(mesh::Material { texture: None });
+        }
+        idx
+    })
 }
 
-impl GltfElement for u16 {
-    const COMPONENT_TYPE: GltfComponentType = GltfComponentType::U16;
-    const ACCESSOR_TYPE: GltfAccessorType = GltfAccessorType::SCALAR;
-    unsafe fn read(data: &[u8]) -> Self {
-        #[cfg(target_endian = "little")]
-        unsafe {
-            *data.as_ptr().cast()
+impl Node {
+    fn walk(&self, fun: &mut impl FnMut(&Node)) {
+        fun(self);
+        for child in &self.children {
+            child.walk(fun);
         }
     }
-}
-
-impl GltfElement for u32 {
-    const COMPONENT_TYPE: GltfComponentType = GltfComponentType::U32;
-    const ACCESSOR_TYPE: GltfAccessorType = GltfAccessorType::SCALAR;
-    unsafe fn read(data: &[u8]) -> Self {
-        #[cfg(target_endian = "little")]
-        unsafe {
-            *data.as_ptr().cast()
-        }
-    }
-}
-
-impl GltfElement for [f32; 2] {
-    const COMPONENT_TYPE: GltfComponentType = GltfComponentType::F32;
-    const ACCESSOR_TYPE: GltfAccessorType = GltfAccessorType::VEC2;
-    unsafe fn read(data: &[u8]) -> Self {
-        #[cfg(target_endian = "little")]
-        unsafe {
-            *data.as_ptr().cast()
-        }
-    }
-}
-
-impl GltfElement for [f32; 3] {
-    const COMPONENT_TYPE: GltfComponentType = GltfComponentType::F32;
-    const ACCESSOR_TYPE: GltfAccessorType = GltfAccessorType::VEC3;
-    unsafe fn read(data: &[u8]) -> Self {
-        #[cfg(target_endian = "little")]
-        unsafe {
-            *data.as_ptr().cast()
-        }
-    }
-}
-
-pub struct Accessor<'a, T> {
-    data: &'a [u8],
-    count: usize,
-    byte_stride: usize,
-    _phantom: PhantomData<&'a T>,
-}
-
-impl<'a, T: GltfElement> Accessor<'a, T> {
-    pub fn get(&self, index: usize) -> T {
-        assert!(index < self.count);
-        unsafe { T::read(&self.data[self.byte_stride * index..]) }
-    }
-    pub fn iter(&self) -> impl Iterator<Item = T> {
-        (0..self.count).map(|n| self.get(n))
+    pub fn to_mesh(&self) -> mesh::Mesh {
+        let mut mesh_mesh = mesh::Mesh {
+            triangles: vec![vec![]],
+            materials: vec![mesh::Material::default()],
+            textures: vec![],
+        };
+        let mut materials = HashMap::new();
+        self.walk(&mut |node| {
+            if let Some(mesh) = &node.mesh {
+                for prim in &mesh.primitives {
+                    let mat_idx =
+                        translate_material(&prim.material, &mut mesh_mesh, &mut materials);
+                    for (i0, i1, i2) in prim.indices.iter().map(|&i| i as usize).tuples() {
+                        let vertices = [i0, i1, i2].map(|i| node.global_matrix * prim.position[i]);
+                        let uv = [i0, i1, i2].map(|i| {
+                            prim.texcoord
+                                .get(prim.material.texcoord_idx)
+                                .map_or(Vec2::default(), |a| a[i])
+                        });
+                        mesh_mesh.triangles[mat_idx].push(mesh::Triangle {
+                            vertices,
+                            uv,
+                            color: [prim.material.color; 3],
+                        });
+                    }
+                }
+            }
+        });
+        mesh_mesh
     }
 }

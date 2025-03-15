@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use rs_common::{
@@ -186,9 +186,22 @@ use minifb::{Key, Window, WindowOptions};
 #[derive(Default)]
 struct ModelAssetLoader {}
 impl AssetLoader for ModelAssetLoader {
-    type Error = ();
+    type File = std::fs::File;
 
-    fn load_texture(&mut self, _name: &str) -> Result<Texture, Self::Error> {
+    fn open_file(
+        &mut self,
+        name: &str,
+        parent: Option<&str>,
+    ) -> Result<Self::File, assets::AssetLoaderError> {
+        let mut path = PathBuf::default();
+        if let Some(p) = parent {
+            path.push(PathBuf::from(p).parent().unwrap());
+        }
+        path.push(name);
+        Ok(std::fs::File::open(path)?)
+    }
+
+    fn load_texture(&mut self, _name: &str) -> Result<Texture, assets::AssetLoaderError> {
         let image = ImageReader::open("/home/aiju/cat.jpg")
             .unwrap()
             .decode()
