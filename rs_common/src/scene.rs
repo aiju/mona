@@ -1,6 +1,15 @@
 use crate::{
-    assets::AssetLoader, geometry::Matrix, gltf::GltfImporter, input::{InputEvent, InputState, Key}, mesh::LoadedMesh, render::{Backend, Context, TextureId}, *
+    assets::AssetLoader,
+    geometry::Matrix,
+    gltf::GltfImporter,
+    input::{InputEvent, InputState, Key},
+    mesh::LoadedMesh,
+    render::{Backend, Context, TextureId},
+    *,
 };
+
+mod cat_room;
+mod tetris;
 
 #[allow(unused_variables)]
 pub trait Scene<B: Backend> {
@@ -24,7 +33,7 @@ pub fn create<B: Backend>(
         ("Obj", Some(path)) => Some(Box::new(ObjScene::new(context, loader, path))),
         ("Gltf", Some(path)) => Some(Box::new(GltfScene::new(context, loader, path))),
         ("Sphere", None) => Some(Box::new(Sphere::default())),
-        ("Tetris", None) => Some(Box::new(crate::tetris::Tetris::new(context, loader))),
+        ("Tetris", None) => Some(Box::new(tetris::Tetris::new(context, loader))),
         _ => None,
     }
 }
@@ -141,7 +150,7 @@ impl<B: Backend> Scene<B> for CatRoom {
             * Matrix::translate(0.0, -1.0, 3.0)
             * Matrix::rotate(-20.0, [1.0, 0.0, 0.0])
             * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
-        let v: Vec<_> = include!("cat_room.rs")
+        let v: Vec<_> = cat_room::CAT_ROOM
             .iter()
             .map(|v| BarePrimitive::new(*v))
             .map(move |p| p.transform(matrix))
@@ -236,7 +245,8 @@ pub struct GltfScene {
 impl GltfScene {
     fn new<B: Backend>(context: &mut Context<B>, mut loader: impl AssetLoader, path: &str) -> Self {
         let file = loader.open_file(path, None).unwrap();
-        let importer = GltfImporter::from_reader(file, &mut loader, Some(path.to_string())).unwrap();
+        let importer =
+            GltfImporter::from_reader(file, &mut loader, Some(path.to_string())).unwrap();
         let scene = importer.root_scene().unwrap().unwrap();
         let model = scene.to_mesh().load(context, loader);
         Self {
@@ -295,7 +305,6 @@ impl<B: Backend> Scene<B> for GltfScene {
         self.time += delta;
     }
 }
-
 
 #[derive(Default)]
 pub struct Sphere {
