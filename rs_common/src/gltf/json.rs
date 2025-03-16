@@ -80,6 +80,7 @@ impl Root {
     define_id_lookup!(texture, TextureId, Texture, textures);
     define_id_lookup!(sampler, SamplerId, Sampler, samplers);
     define_id_lookup!(image, ImageId, Image, images);
+    define_id_lookup!(skin, SkinId, Skin, skins);
     define_id_lookup!(animation, AnimationId, Animation, animations);
 }
 

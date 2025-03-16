@@ -249,6 +249,7 @@ name = "rs_common"
 version = "0.1.0"
 dependencies = [
  "bitvec",
+ "either",
  "image",
  "itertools",
  "rand",

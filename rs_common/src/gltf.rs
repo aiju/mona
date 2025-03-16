@@ -1,8 +1,7 @@
 use crate::{
-    animation::{Sampler, SamplerMode},
     assets::{AssetLoader, AssetLoaderError},
     geometry::{Matrix, Vec2, Vec3, Vec4},
-    mesh::{self, Color, GameObject, Texture, TextureState},
+    mesh::{self, Color, GameObject, SkinnedMesh, Texture, TextureState},
 };
 use binary::Accessor;
 use itertools::Itertools;
@@ -10,12 +9,15 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     io::Read,
-    rc::{Rc, Weak},
+    rc::Rc,
 };
 use thiserror::Error;
 
+mod animation;
 mod binary;
 mod json;
+
+pub use animation::{Animation, Skin};
 
 //FIXME: maybe shouldnt be public ?
 pub use json::AnimationId;
@@ -45,6 +47,7 @@ pub struct Primitive {
     indices: Vec<u32>,
     position: Vec<Vec3>,
     texcoord: Vec<Vec<Vec2>>,
+    joints: Vec<Vec<(usize, f64)>>,
     color: Vec<Vec4>,
 }
 
@@ -55,10 +58,10 @@ pub struct Mesh {
 pub struct Node {
     pub name: Option<String>,
     mesh: Option<Rc<Mesh>>,
-    parent: Option<Weak<Node>>,
+    skin: Option<Rc<Skin>>,
     children: Vec<Rc<Node>>,
     transform: Transform,
-    game_object: RefCell<Option<Rc<GameObject>>>,
+    pub game_object: RefCell<Option<Rc<GameObject>>>,
     used_by_animation: Cell<bool>,
 }
 
@@ -72,37 +75,17 @@ pub enum Transform {
     },
 }
 
-#[derive(Clone)]
-pub struct Animation {
-    name: Option<String>,
-    channels: Vec<(usize, Rc<Node>, json::AnimationPath)>,
-    data: Vec<AnimationData>,
-}
-
-#[derive(Clone, Debug)]
-pub struct AnimationData {
-    input: Vec<f64>,
-    interpolation: json::AnimationInterpolation,
-    output: AnimationOutput,
-}
-
-#[derive(Clone, Debug)]
-pub enum AnimationOutput {
-    Scalar(Vec<f64>),
-    Vec3(Vec<Vec3>),
-    Vec4(Vec<Vec4>),
-}
-
 pub struct GltfImporter<'a> {
     json: json::Root,
     loader: &'a mut AssetLoader,
     file_name: Option<String>,
-    buffers: RefCell<HashMap<json::BufferId, Rc<Vec<u8>>>>,
-    textures: RefCell<HashMap<json::TextureId, Rc<Texture>>>,
-    materials: RefCell<HashMap<json::MaterialId, Rc<Material>>>,
-    meshes: RefCell<HashMap<json::MeshId, Rc<Mesh>>>,
-    nodes: RefCell<HashMap<json::NodeId, Rc<Node>>>,
-    animations: RefCell<HashMap<json::AnimationId, Rc<Animation>>>,
+    buffers: Memoize<json::BufferId, Rc<Vec<u8>>>,
+    textures: Memoize<json::TextureId, Rc<Texture>>,
+    materials: Memoize<json::MaterialId, Rc<Material>>,
+    meshes: Memoize<json::MeshId, Rc<Mesh>>,
+    nodes: Memoize<json::NodeId, Rc<Node>>,
+    animations: Memoize<json::AnimationId, Rc<Animation>>,
+    skins: Memoize<json::SkinId, Rc<Skin>>,
 }
 
 #[derive(Error, Debug)]
@@ -148,45 +131,29 @@ macro_rules! gltf_assert_supported {
         $e.then_some(()).ok_or(Error::UnsupportedFeature)?
     };
 }
+pub(self) use {gltf_abort, gltf_assert, gltf_assert_supported, gltf_unwrap};
 
-fn get_or_insert<K: Eq + std::hash::Hash, V: Clone>(
-    map: &RefCell<HashMap<K, V>>,
-    key: K,
-    fun: impl FnOnce() -> Result<V, Error>,
-) -> Result<V, Error> {
-    if let Some(value) = map.borrow().get(&key) {
-        Ok(value.clone())
-    } else {
-        let value = fun()?;
-        map.borrow_mut().insert(key, value.clone());
-        Ok(value)
+struct Memoize<K, V>(RefCell<HashMap<K, Option<V>>>);
+
+impl<K, V> Default for Memoize<K, V> {
+    fn default() -> Self {
+        Self(Default::default())
     }
 }
 
-fn new_cyclic_fallible<T, E>(
-    create_fn: impl FnOnce(&Weak<T>) -> Result<T, E>,
-    any_value: impl FnOnce() -> T,
-) -> Result<Rc<T>, E> {
-    let mut error = None;
-    let value = Rc::new_cyclic(|weak| match create_fn(weak) {
-        Ok(value) => value,
-        Err(err) => {
-            error = Some(err);
-            any_value()
+impl<K: Eq + std::hash::Hash + Clone, V: Clone> Memoize<K, V> {
+    fn insert(&self, key: K, value: V) {
+        self.0.borrow_mut().insert(key, Some(value));
+    }
+    fn get_or_insert(&self, key: K, fun: impl FnOnce() -> Result<V, Error>) -> Result<V, Error> {
+        if let Some(value) = self.0.borrow().get(&key) {
+            Ok(value.clone().expect("cycle during creation"))
+        } else {
+            self.0.borrow_mut().insert(key.clone(), None);
+            let value = fun()?;
+            self.0.borrow_mut().insert(key, Some(value.clone()));
+            Ok(value)
         }
-    });
-    error.map_or(Ok(value), Err)
-}
-
-fn garbage_node() -> Node {
-    Node {
-        name: None,
-        mesh: None,
-        parent: None,
-        children: vec![],
-        transform: Transform::default(),
-        used_by_animation: false.into(),
-        game_object: None.into(),
     }
 }
 
@@ -202,6 +169,7 @@ impl<'a> GltfImporter<'a> {
             meshes: Default::default(),
             nodes: Default::default(),
             animations: Default::default(),
+            skins: Default::default(),
         }
     }
     fn read_chunk(
@@ -238,9 +206,7 @@ impl<'a> GltfImporter<'a> {
             if remaining_len > 0 {
                 buf = Self::read_chunk(&mut reader, &mut remaining_len, 0x004E4942)?;
                 gltf_assert!(gltf.json.buffers.len() > 0 && gltf.json.buffers[0].uri.is_none());
-                gltf.buffers
-                    .borrow_mut()
-                    .insert(json::BufferId(0), Rc::new(buf));
+                gltf.buffers.insert(json::BufferId(0), Rc::new(buf));
             }
             Ok(gltf)
         } else {
@@ -254,7 +220,7 @@ impl<'a> GltfImporter<'a> {
         Self::from_reader(file, loader, Some(file_name))
     }
     fn buffer(&self, id: json::BufferId) -> Result<Rc<Vec<u8>>, Error> {
-        get_or_insert(&self.buffers, id, || {
+        self.buffers.get_or_insert(id, || {
             let buffer = self.json.buffer(id)?;
             let name = gltf_unwrap!(buffer.uri.as_ref());
             let mut file = self
@@ -313,8 +279,47 @@ impl<'a> GltfImporter<'a> {
         }
         Ok(gltf_unwrap!(count))
     }
+    fn joint_accessor(&self, id: json::AccessorId) -> Result<Vec<[u16; 4]>, Error> {
+        match self.json.accessor(id)?.component_type {
+            json::ComponentType::U8 => Ok(self
+                .accessor::<[u8; 4]>(id)?
+                .into_iter()
+                .map(|x| x.map(|y| y as u16))
+                .collect()),
+            json::ComponentType::U16 => self.accessor(id),
+            _ => gltf_abort!(),
+        }
+    }
+    fn primitive_joints(
+        &self,
+        prim: &json::MeshPrimitive,
+        attr_count: usize,
+    ) -> Result<Vec<Vec<(usize, f64)>>, Error> {
+        let mut result = vec![vec![]; attr_count];
+        for i in 0.. {
+            match (
+                prim.attributes.get(&format!("JOINTS_{}", i)),
+                prim.attributes.get(&format!("WEIGHTS_{}", i)),
+            ) {
+                (Some(&joints_id), Some(&weight_id)) => {
+                    let joints: Vec<[u16; 4]> = self.joint_accessor(joints_id)?;
+                    let weights: Vec<[f64; 4]> = self.accessor(weight_id)?;
+                    for (i, (j, w)) in joints.iter().zip(&weights).enumerate() {
+                        for k in 0..4 {
+                            result[i].push((j[k] as usize, w[k]));
+                        }
+                    }
+                }
+                (None, None) => {
+                    break;
+                }
+                (_, _) => gltf_abort!(),
+            }
+        }
+        Ok(result)
+    }
     fn mesh(&self, id: json::MeshId) -> Result<Rc<Mesh>, Error> {
-        get_or_insert(&self.meshes, id, || {
+        self.meshes.get_or_insert(id, || {
             let mesh = self.json.mesh(id)?;
             let mut primitives = Vec::new();
             for prim in &mesh.primitives {
@@ -336,11 +341,13 @@ impl<'a> GltfImporter<'a> {
                     texcoord.push(self.accessor(id)?);
                     i += 1;
                 }
+                let joints = self.primitive_joints(&prim, attr_count)?;
                 primitives.push(Primitive {
                     material,
                     indices,
                     position,
                     texcoord,
+                    joints,
                     color: Vec::new(),
                 });
             }
@@ -348,7 +355,7 @@ impl<'a> GltfImporter<'a> {
         })
     }
     fn texture(&self, id: json::TextureId) -> Result<Rc<Texture>, Error> {
-        get_or_insert(&self.textures, id, || {
+        self.textures.get_or_insert(id, || {
             let texture = self.json.texture(id)?;
             let image = self.json.image(gltf_unwrap!(texture.source))?;
             if let Some(uri) = &image.uri {
@@ -367,7 +374,7 @@ impl<'a> GltfImporter<'a> {
         })
     }
     fn material(&self, id: json::MaterialId) -> Result<Rc<Material>, Error> {
-        get_or_insert(&self.materials, id, || {
+        self.materials.get_or_insert(id, || {
             let material = self.json.material(id)?;
             let texture = material
                 .pbr_metallic_roughness
@@ -388,30 +395,26 @@ impl<'a> GltfImporter<'a> {
             }))
         })
     }
-    fn node(&self, id: json::NodeId, parent: Option<Weak<Node>>) -> Result<Rc<Node>, Error> {
-        get_or_insert(&self.nodes, id, || {
-            new_cyclic_fallible(
-                |weak_self| {
-                    let node = self.json.node(id)?;
-                    let mesh = node.mesh.map(|id| self.mesh(id)).transpose()?;
-                    let transform = node.transform();
-                    let children = node
-                        .children
-                        .iter()
-                        .map(|n| self.node(*n, Some(weak_self.clone())))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    Ok(Node {
-                        name: node.name.clone(),
-                        mesh,
-                        parent,
-                        children,
-                        transform,
-                        game_object: None.into(),
-                        used_by_animation: false.into(),
-                    })
-                },
-                garbage_node,
-            )
+    fn node(&self, id: json::NodeId) -> Result<Rc<Node>, Error> {
+        self.nodes.get_or_insert(id, || {
+            let node = self.json.node(id)?;
+            let mesh = node.mesh.map(|id| self.mesh(id)).transpose()?;
+            let transform = node.transform();
+            let children = node
+                .children
+                .iter()
+                .map(|n| self.node(*n))
+                .collect::<Result<Vec<_>, _>>()?;
+            let skin = node.skin.map(|id| self.skin(id)).transpose()?;
+            Ok(Rc::new(Node {
+                name: node.name.clone(),
+                mesh,
+                children,
+                transform,
+                skin,
+                game_object: None.into(),
+                used_by_animation: false.into(),
+            }))
         })
     }
     pub fn scene(&self, id: json::SceneId) -> Result<Node, Error> {
@@ -419,13 +422,13 @@ impl<'a> GltfImporter<'a> {
         let nodes = scene
             .nodes
             .iter()
-            .map(|id| self.node(*id, None))
+            .map(|id| self.node(*id))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Node {
             name: None,
             children: nodes,
             mesh: None,
-            parent: None,
+            skin: None,
             game_object: None.into(),
             transform: Transform::default(),
             used_by_animation: false.into(),
@@ -433,68 +436,6 @@ impl<'a> GltfImporter<'a> {
     }
     pub fn root_scene(&self) -> Result<Option<Node>, Error> {
         self.json.scene.map(|id| self.scene(id)).transpose()
-    }
-    fn animation_output_accessor(&self, id: json::AccessorId) -> Result<AnimationOutput, Error> {
-        let accessor = self.json.accessor(id)?;
-        Ok(match accessor.type_ {
-            json::AccessorType::SCALAR => AnimationOutput::Scalar(self.accessor(id)?),
-            json::AccessorType::VEC3 => AnimationOutput::Vec3(self.accessor(id)?),
-            json::AccessorType::VEC4 => AnimationOutput::Vec4(self.accessor(id)?),
-            _ => gltf_abort!(),
-        })
-    }
-    fn validate_animation_channel(
-        &self,
-        sampler: usize,
-        data: &[AnimationData],
-        path: json::AnimationPath,
-    ) -> Result<(), Error> {
-        let data = gltf_unwrap!(data.get(sampler));
-        Ok(match (path, &data.output) {
-            (json::AnimationPath::Translation, AnimationOutput::Vec3(_)) => {}
-            (json::AnimationPath::Rotation, AnimationOutput::Vec4(_)) => {}
-            (json::AnimationPath::Scale, AnimationOutput::Vec3(_)) => {}
-            (json::AnimationPath::Weights, AnimationOutput::Scalar(_)) => {}
-            _ => gltf_abort!(),
-        })
-    }
-    pub fn animation(&self, id: json::AnimationId) -> Result<Rc<Animation>, Error> {
-        get_or_insert(&self.animations, id, || {
-            let animation = self.json.animation(id)?;
-            let data = animation
-                .samplers
-                .iter()
-                .map(|s| {
-                    let input = self.accessor(s.input)?;
-                    let output = self.animation_output_accessor(s.output)?;
-                    Ok(AnimationData {
-                        input,
-                        interpolation: s.interpolation,
-                        output,
-                    })
-                })
-                .collect::<Result<Vec<_>, Error>>()?;
-            let channels = animation
-                .channels
-                .iter()
-                .map(|c| {
-                    let node = self
-                        .nodes
-                        .borrow()
-                        .get(&gltf_unwrap!(c.target.node))
-                        .expect("called .animation before .node")
-                        .clone();
-                    node.used_by_animation.set(true);
-                    self.validate_animation_channel(c.sampler, &data, c.target.path)?;
-                    Ok((c.sampler, node, c.target.path))
-                })
-                .collect::<Result<Vec<_>, Error>>()?;
-            Ok(Rc::new(Animation {
-                name: animation.name.clone(),
-                channels,
-                data,
-            }))
-        })
     }
 }
 
@@ -578,7 +519,7 @@ impl std::ops::Mul<Transform> for Transform {
 
 fn translate_material(
     material: &Material,
-    mesh: &mut mesh::Mesh,
+    mesh: &mut mesh::SkinnedMesh,
     cache: &mut HashMap<Option<json::MaterialId>, usize>,
 ) -> usize {
     *cache.entry(material.id).or_insert_with(|| {
@@ -605,7 +546,18 @@ impl Node {
         transform: Transform,
     ) {
         if let Some(mesh) = &self.mesh {
-            let out_mesh = game_object.mesh.get_or_insert_default();
+            let out_mesh = game_object
+                .mesh
+                .get_or_insert(either::Right(SkinnedMesh {
+                    triangles: vec![],
+                    materials: vec![],
+                    inverse_bind_matrices: self
+                        .skin
+                        .as_ref()
+                        .map_or(vec![], |s| s.inverse_bind_matrices.clone()),
+                }))
+                .as_mut()
+                .unwrap_right();
             let matrix = transform.matrix();
             for prim in &mesh.primitives {
                 let mat_idx = translate_material(&prim.material, out_mesh, cache);
@@ -616,10 +568,23 @@ impl Node {
                             .get(prim.material.texcoord_idx)
                             .map_or(Vec2::default(), |a| a[i])
                     });
-                    out_mesh.triangles[mat_idx].push(mesh::Triangle {
-                        vertices,
-                        uv,
-                        color: [prim.material.color; 3],
+                    let joints = if let Some(skin) = &self.skin {
+                        [i0, i1, i2].map(|i| {
+                            prim.joints[i]
+                                .iter()
+                                .map(|(idx, weight)| (*idx, skin.joints[*idx].clone(), *weight))
+                                .collect()
+                        })
+                    } else {
+                        Default::default()
+                    };
+                    out_mesh.triangles[mat_idx].push(mesh::SkinnedTriangle {
+                        triangle: mesh::Triangle {
+                            vertices,
+                            uv,
+                            color: [prim.material.color; 3],
+                        },
+                        joints,
                     });
                 }
             }
@@ -636,12 +601,13 @@ impl Node {
         };
         GameObject {
             mesh: None,
-            name: None,
+            name: self.name.clone(),
             position: translate.into(),
             rotation: rotate.unwrap_or([0.0, 0.0, 0.0, 1.0].into()).into(),
             scale: scale.unwrap_or([1.0, 1.0, 1.0].into()).into(),
             children: vec![].into(),
             update_fn: RefCell::new(None),
+            matrix: Matrix::IDENTITY.into(),
         }
     }
     fn add_to_game_object(
@@ -688,99 +654,5 @@ impl Node {
         let mut cache = HashMap::new();
         self.add_to_game_object(&mut game_object, &mut cache, Transform::default(), &fun);
         game_object
-    }
-}
-
-impl TryInto<Vec<f64>> for AnimationOutput {
-    type Error = Error;
-    fn try_into(self) -> Result<Vec<f64>, Self::Error> {
-        match self {
-            AnimationOutput::Scalar(vec) => Ok(vec),
-            _ => gltf_abort!()
-        }
-    }
-}
-
-impl TryInto<Vec<Vec3>> for AnimationOutput {
-    type Error = Error;
-    fn try_into(self) -> Result<Vec<Vec3>, Self::Error> {
-        match self {
-            AnimationOutput::Vec3(vec) => Ok(vec),
-            _ => gltf_abort!()
-        }
-    }
-}
-
-impl TryInto<Vec<Vec4>> for AnimationOutput {
-    type Error = Error;
-    fn try_into(self) -> Result<Vec<Vec4>, Self::Error> {
-        match self {
-            AnimationOutput::Vec4(vec) => Ok(vec),
-            _ => gltf_abort!()
-        }
-    }
-}
-
-impl AnimationData {
-    pub fn to_sampler<T>(&self) -> Sampler<T>  where AnimationOutput: TryInto<Vec<T>> {
-        let mode = match self.interpolation {
-            json::AnimationInterpolation::LINEAR => SamplerMode::Linear,
-            json::AnimationInterpolation::STEP => SamplerMode::Step,
-            json::AnimationInterpolation::CUBICSPLINE => todo!(),
-        };
-        Sampler {
-            mode,
-            keyframes: self.input.clone(),
-            samples: self.output.clone().try_into().unwrap_or_else(|_| unreachable!()),
-            time: 0.0,
-            index: 0
-        }
-    }
-}
-
-impl Animation {
-    pub fn to_game_object(&self) -> mesh::GameObject {
-        let mut update_fns: Vec<Box<dyn FnMut(f64)>> = Vec::new();
-        for (sampler_idx, node, path) in &self.channels {
-            let data = &self.data[*sampler_idx];
-            let go = node.game_object.borrow().as_ref().unwrap().clone();
-            match path {
-                json::AnimationPath::Translation => {
-                    let mut sampler = data.to_sampler();
-                    update_fns.push(Box::new(move |delay| {
-                        *go.position.borrow_mut() = sampler.sample();
-                        sampler.advance(delay);
-                    }));
-                }
-                json::AnimationPath::Rotation => {
-                    let mut sampler = data.to_sampler();
-                    update_fns.push(Box::new(move |delay| {
-                        *go.rotation.borrow_mut() = sampler.sample();
-                        sampler.advance(delay);
-                    }));
-                }
-                json::AnimationPath::Scale => {
-                    let mut sampler = data.to_sampler();
-                    update_fns.push(Box::new(move |delay| {
-                        *go.scale.borrow_mut() = sampler.sample();
-                        sampler.advance(delay);
-                    }));
-                }
-                _ => {
-                    eprintln!("unsupported animation: {path:?}");
-                }
-            }
-        }
-        GameObject {
-            mesh: None,
-            name: None,
-            position: Vec3::from([0.0, 0.0, 0.0]).into(),
-            rotation: Vec4::from([0.0, 0.0, 0.0, 1.0]).into(),
-            scale: Vec3::from([1.0, 1.0, 1.0]).into(),
-            children: Default::default(),
-            update_fn: RefCell::new(Some(Box::new(move |_, delta| {
-                update_fns.iter_mut().for_each(|f| f(delta));
-            }))),
-        }
     }
 }

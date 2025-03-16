@@ -122,6 +122,9 @@ impl Matrix {
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ]);
+    pub fn transpose(self) -> Matrix {
+        Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[j][i])))
+    }
     pub fn rotate(angle: f64, axis: [f64; 3]) -> Matrix {
         let c = (angle * PI / 180.0).cos();
         let s = (angle * PI / 180.0).sin();
@@ -191,6 +194,28 @@ impl Matrix {
             [0.0, 0.0, far / (near - far), far * near / (near - far)],
             [0.0, 0.0, 1.0, 0.0],
         ])
+    }
+}
+
+impl std::ops::Add for Matrix {
+    type Output = Matrix;
+    fn add(self, rhs: Self) -> Self::Output {
+        Matrix([0, 1, 2, 3].map(|i| [0,1,2,3].map(|j| self.0[i][j] + rhs.0[i][j])))
+    }
+}
+
+impl std::ops::Sub for Matrix {
+    type Output = Matrix;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Matrix([0, 1, 2, 3].map(|i| [0,1,2,3].map(|j| self.0[i][j] - rhs.0[i][j])))
+    }
+}
+
+impl std::ops::Mul<f64> for Matrix {
+    type Output = Matrix;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Matrix([0, 1, 2, 3].map(|i| [0,1,2,3].map(|j| self.0[i][j] * rhs)))
     }
 }
 

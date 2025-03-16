@@ -1,5 +1,5 @@
 use super::json;
-use crate::geometry::{Vec2, Vec3, Vec4};
+use crate::geometry::{Matrix, Vec2, Vec3, Vec4};
 
 pub trait InnerAccessor: Sized {
     const COMPONENT_TYPE: json::ComponentType;
@@ -152,6 +152,21 @@ impl Accessor for Vec4 {
                 &buf[3 * <f64 as InnerAccessor>::COMPONENT_TYPE.len()..],
             );
             [t0, t1, t2, t3].into()
+        }
+    }
+}
+
+impl Accessor for Matrix {
+    const COMPONENT_TYPE: json::ComponentType = json::ComponentType::F32;
+    const ACCESSOR_TYPE: json::AccessorType = json::AccessorType::MAT4;
+    unsafe fn read(buf: &[u8]) -> Self {
+        unsafe {
+            let matrix = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(|i| {
+                <f64 as InnerAccessor>::read(
+                    &buf[<f64 as InnerAccessor>::COMPONENT_TYPE.len() * i..],
+                )
+            });
+            matrix.into()
         }
     }
 }

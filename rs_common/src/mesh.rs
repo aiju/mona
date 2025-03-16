@@ -6,6 +6,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use either::{Either, for_both};
+
 use crate::{
     BarePrimitive,
     assets::{AssetLoader, resolve_path},
@@ -154,7 +156,6 @@ impl Texture {
             |state| match state {
                 TextureState::File(path) => {
                     let file = loader.open_file(&path).unwrap();
-                    println!("{:?}", path);
                     let image_reader = image::ImageReader::new(BufReader::new(file));
                     TextureState::RenderTexture(image_reader_to_render_texture(image_reader))
                 }
@@ -207,11 +208,12 @@ impl Mesh {
 }
 
 pub struct GameObject {
-    pub mesh: Option<Mesh>,
+    pub mesh: Option<Either<Mesh, SkinnedMesh>>,
     pub name: Option<String>,
     pub position: RefCell<Vec3>,
     pub rotation: RefCell<Vec4>,
     pub scale: RefCell<Vec3>,
+    pub matrix: RefCell<Matrix>,
     pub children: RefCell<Vec<Rc<GameObject>>>,
     pub update_fn: RefCell<Option<Box<dyn FnMut(&GameObject, f64)>>>,
 }
@@ -263,7 +265,9 @@ impl GameObject {
         matrix
     }
     pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
-        self.mesh.as_ref().map(|r| r.load(context, loader));
+        self.mesh
+            .as_ref()
+            .map(|r| for_both!(r, r => r.load(context, loader)));
         for child in self.children.borrow().iter() {
             child.load(context, loader);
         }
@@ -272,17 +276,75 @@ impl GameObject {
         let new_matrix = object * self.local_matrix();
         self.mesh
             .as_ref()
-            .map(|r| r.render(context, new_matrix, view));
+            .map(|r| for_both!(r, r => r.render(context, new_matrix, view)));
         for child in self.children.borrow().iter() {
             child.render(context, new_matrix, view);
         }
     }
-    pub fn update(&self, delta: f64) {
+    pub fn update(&self, delta: f64, matrix: Matrix) {
         if let Some(fun) = &mut *self.update_fn.borrow_mut() {
             fun(self, delta);
         }
+        *self.matrix.borrow_mut() = matrix * self.local_matrix();
         for child in self.children.borrow().iter() {
-            child.update(delta);
+            child.update(delta, *self.matrix.borrow());
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SkinnedTriangle {
+    pub triangle: Triangle,
+    pub joints: [Vec<(usize, Rc<crate::gltf::Node>, f64)>; 3],
+}
+
+#[derive(Default, Clone)]
+pub struct SkinnedMesh {
+    pub triangles: Vec<Vec<SkinnedTriangle>>,
+    pub materials: Vec<Rc<Material>>,
+    pub inverse_bind_matrices: Vec<Matrix>,
+}
+
+impl SkinnedMesh {
+    pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
+        for material in &self.materials {
+            if let Some(tex) = &material.texture {
+                tex.load_backend(context, loader);
+            }
+        }
+    }
+    fn render<B: Backend>(&self, context: &mut Context<B>, object: Matrix, view: Matrix) {
+        for (triangles, material) in self.triangles.iter().zip(&self.materials) {
+            let v: Vec<_> = triangles
+                .iter()
+                .map(|t| {
+                    let mut v: [Vec4; 3] = Default::default();
+                    for i in 0..3 {
+                        let mut matrix: Matrix = [0.0; 16].into();
+                        for (idx, joint, weight) in &t.joints[i] {
+                            let go = joint.game_object.borrow().clone().unwrap();
+                            matrix = matrix
+                                + *go.matrix.borrow()
+                                    * self
+                                        .inverse_bind_matrices
+                                        .get(*idx)
+                                        .unwrap_or(&Matrix::IDENTITY)
+                                        .transpose()
+                                    * *weight;
+                        }
+                        v[i] = matrix * Vec4::from(t.triangle.vertices[i]);
+                    }
+                    BarePrimitive {
+                        vertices: v,
+                        uv: t.triangle.uv,
+                        color: t.triangle.color,
+                    }
+                    .transform(object)
+                    .lighting(0.5, 0.5, [0.707, 0.0, 0.707].into())
+                    .transform(view)
+                })
+                .collect();
+            context.draw().opt_textured(material.texture_id()).run(&v);
         }
     }
 }
