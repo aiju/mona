@@ -250,13 +250,14 @@ impl GltfScene {
         let file = loader.open_file(path).unwrap();
         let importer = GltfImporter::from_reader(file, loader, Some(path.to_string())).unwrap();
         let scene = importer.root_scene().unwrap().unwrap();
-        let root = scene.to_game_object(|node| {
-            if node.name.as_ref().filter(|n| *n == "Suzanne").is_some() {
-                gltf::GltfAction::Split
-            } else {
-                gltf::GltfAction::Keep
-            }
-        });
+        let animation = importer.animation(gltf::AnimationId(0));
+        let root = scene.to_game_object(|_| gltf::GltfAction::Keep);
+        if let Ok(animation) = animation {
+            let animation_object = animation.to_game_object();
+            root.children
+                .borrow_mut()
+                .push(std::rc::Rc::new(animation_object));
+        }
         root.load(context, loader);
         Self {
             root,
@@ -295,6 +296,7 @@ impl<B: Backend> Scene<B> for GltfScene {
             - (input.is_key_down(Key::KeyQ) as u32 as f64))
             * delta
             * 10.0;
+        self.root.update(delta);
         self.time += delta;
     }
 }
@@ -337,7 +339,7 @@ impl<B: Backend> Scene<B> for Sphere {
             for i in 0..3 {
                 let normal = t.vertices[i].xyz();
                 let tt = self.time;
-                let direction = [tt.cos(), 0.0, -tt.sin()].into();
+                let direction: Vec3 = [tt.cos(), 0.0, -tt.sin()].into();
                 let s = (normal * direction).clamp(0.0, 1.0);
                 let l = 0.3 + 0.3 * s + 0.3 * s * s * s;
                 t.color[i] = [l, l, l].into();

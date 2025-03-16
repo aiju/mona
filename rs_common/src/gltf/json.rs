@@ -26,6 +26,7 @@ define_id!(TextureId);
 define_id!(SamplerId);
 define_id!(ImageId);
 define_id!(SkinId);
+define_id!(AnimationId);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,6 +80,7 @@ impl Root {
     define_id_lookup!(texture, TextureId, Texture, textures);
     define_id_lookup!(sampler, SamplerId, Sampler, samplers);
     define_id_lookup!(image, ImageId, Image, images);
+    define_id_lookup!(animation, AnimationId, Animation, animations);
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -391,7 +393,7 @@ pub struct AnimationChannel {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnimationChannelTarget {
     pub node: Option<NodeId>,
-    pub path: String,
+    pub path: AnimationPath,
     pub extras: Extras,
     pub extensions: Extensions,
 }
@@ -405,7 +407,7 @@ pub struct AnimationSampler {
     pub extensions: Extensions,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnimationInterpolation {
     LINEAR,
     STEP,
@@ -421,4 +423,13 @@ pub struct Skin {
     pub name: Option<String>,
     pub extras: Extras,
     pub extensions: Extensions,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnimationPath {
+    Translation,
+    Rotation,
+    Scale,
+    Weights,
 }

@@ -22,7 +22,7 @@ pub struct Vec4 {
     pub w: f64,
 }
 #[repr(transparent)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Matrix(pub [[f64; 4]; 4]);
 
 impl From<[f32; 2]> for Vec2 {
@@ -137,13 +137,33 @@ impl Matrix {
             [0.0, 0.0, 0.0, 1.0],
         ])
     }
-    pub fn rotate_quaternion(q: [f64; 4]) -> Matrix {
-        let [qi, qj, qk, qr] = q;
+    pub fn rotate_quaternion(q: Vec4) -> Matrix {
+        let Vec4 {
+            x: qi,
+            y: qj,
+            z: qk,
+            w: qr,
+        } = q;
         let s = 2.0 / (qi * qi + qj * qj + qk * qk + qr * qr);
         Matrix([
-            [1.0 - s * (qj * qj + qk * qk), s * (qi * qj - qk * qr), s * (qi * qk + qj * qr), 0.0],
-            [s * (qi * qj + qk * qr), 1.0 - s * (qi * qi + qk * qk), s * (qj * qk - qi * qr), 0.0],
-            [s * (qi * qk - qj * qr), s * (qj * qk + qi * qr), 1.0 - s * (qi * qi + qj * qj), 0.0],
+            [
+                1.0 - s * (qj * qj + qk * qk),
+                s * (qi * qj - qk * qr),
+                s * (qi * qk + qj * qr),
+                0.0,
+            ],
+            [
+                s * (qi * qj + qk * qr),
+                1.0 - s * (qi * qi + qk * qk),
+                s * (qj * qk - qi * qr),
+                0.0,
+            ],
+            [
+                s * (qi * qk - qj * qr),
+                s * (qj * qk + qi * qr),
+                1.0 - s * (qi * qi + qj * qj),
+                0.0,
+            ],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }
@@ -273,6 +293,18 @@ impl std::ops::Sub for Vec3 {
     }
 }
 
+impl std::ops::Mul<f64> for Vec3 {
+    type Output = Vec3;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Vec3 {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
+        }
+    }
+}
+
 impl std::ops::Mul for Vec3 {
     type Output = f64;
 
@@ -301,5 +333,32 @@ impl Vec4 {
             self[3] * l + other[3] * (1.0 - l),
         ]
         .into()
+    }
+}
+
+impl std::ops::Add for Vec4 {
+    type Output = Vec4;
+    fn add(self, rhs: Self) -> Self::Output {
+        [self.x + rhs.x, self.y + rhs.y, self.z + rhs.z, self.w + rhs.w].into()
+    }
+}
+
+impl std::ops::Sub for Vec4 {
+    type Output = Vec4;
+    fn sub(self, rhs: Self) -> Self::Output {
+        [self.x - rhs.x, self.y - rhs.y, self.z - rhs.z, self.w - rhs.w].into()
+    }
+}
+
+impl std::ops::Mul<f64> for Vec4 {
+    type Output = Vec4;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Vec4 {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
+            w: self.w * rhs,
+        }
     }
 }
