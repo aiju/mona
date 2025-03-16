@@ -3,7 +3,7 @@ use crate::{
     geometry::Matrix,
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
-    mesh::{Mesh, Texture},
+    mesh::{GameObject, Mesh, Texture},
     render::{Backend, Context, TextureId},
     *,
 };
@@ -236,7 +236,7 @@ impl<B: Backend> Scene<B> for ObjScene {
 }
 
 pub struct GltfScene {
-    model: Mesh,
+    root: GameObject,
     time: f64,
     x: f64,
     y: f64,
@@ -248,13 +248,18 @@ pub struct GltfScene {
 impl GltfScene {
     fn new<B: Backend>(context: &mut Context<B>, loader: &mut AssetLoader, path: &str) -> Self {
         let file = loader.open_file(path).unwrap();
-        let importer =
-            GltfImporter::from_reader(file, loader, Some(path.to_string())).unwrap();
+        let importer = GltfImporter::from_reader(file, loader, Some(path.to_string())).unwrap();
         let scene = importer.root_scene().unwrap().unwrap();
-        let model = scene.to_mesh();
-        model.load(context, loader);
+        let root = scene.to_game_object(|node| {
+            if node.name.as_ref().filter(|n| *n == "Suzanne").is_some() {
+                gltf::GltfAction::Split
+            } else {
+                gltf::GltfAction::Keep
+            }
+        });
+        root.load(context, loader);
         Self {
-            model,
+            root,
             time: Default::default(),
             rot_x: 0.0,
             rot_y: 0.0,
@@ -267,27 +272,11 @@ impl GltfScene {
 
 impl<B: Backend> Scene<B> for GltfScene {
     fn render(&mut self, context: &mut Context<B>) {
-        let object = Matrix::IDENTITY;
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
             * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
             * Matrix::translate(-self.x, -self.y, -self.z);
-        for (triangles, material) in self.model.triangles.iter().zip(&self.model.materials) {
-            let v: Vec<_> = triangles
-                .iter()
-                .map(|t| {
-                    BarePrimitive {
-                        vertices: t.vertices.map(From::from),
-                        uv: t.uv,
-                        color: t.color,
-                    }
-                    .transform(object)
-                    .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
-                    .transform(view)
-                })
-                .collect();
-            context.draw().opt_textured(material.texture_id()).run(&v);
-        }
+        self.root.render(context, Matrix::IDENTITY, view);
     }
     fn update(&mut self, delta: f64, input: &InputState) {
         self.rot_x = (input.mouse_x() as f64) / 10.0;

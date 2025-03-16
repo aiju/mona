@@ -237,6 +237,9 @@ impl Vec3 {
     pub fn zero() -> Vec3 {
         Vec3::default()
     }
+    pub fn len(self) -> f64 {
+        (self * self).sqrt()
+    }
     pub fn normalize(self) -> Vec3 {
         // TODO: can be more intelligent here
         let l = (self * self).sqrt();

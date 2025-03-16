@@ -1,13 +1,13 @@
 use crate::{
     assets::{AssetLoader, AssetLoaderError},
     geometry::{Matrix, Vec2, Vec3, Vec4},
-    mesh::{self, Color, Texture, TextureState},
+    mesh::{self, Color, GameObject, Texture, TextureState},
 };
 use binary::Accessor;
 use itertools::Itertools;
 use std::{
     cell::RefCell,
-    collections::{HashMap, hash_map::Entry},
+    collections::HashMap,
     io::Read,
     rc::{Rc, Weak},
 };
@@ -49,11 +49,11 @@ pub struct Mesh {
 }
 
 pub struct Node {
+    pub name: Option<String>,
     mesh: Option<Rc<Mesh>>,
     parent: Option<Weak<Node>>,
     children: Vec<Rc<Node>>,
     local_matrix: Matrix,
-    global_matrix: Matrix,
 }
 
 pub struct GltfImporter<'a> {
@@ -116,18 +116,43 @@ fn get_or_insert<K: Eq + std::hash::Hash, V: Clone>(
     key: K,
     fun: impl FnOnce() -> Result<V, Error>,
 ) -> Result<V, Error> {
-    match map.borrow_mut().entry(key) {
-        Entry::Occupied(entry) => Ok(entry.get().clone()),
-        Entry::Vacant(entry) => {
-            let value = fun()?;
-            entry.insert(value.clone());
-            Ok(value)
+    if let Some(value) = map.borrow().get(&key) {
+        Ok(value.clone())
+    } else {
+        let value = fun()?;
+        map.borrow_mut().insert(key, value.clone());
+        Ok(value)
+    }
+}
+
+fn new_cyclic_fallible<T, E>(
+    create_fn: impl FnOnce(&Weak<T>) -> Result<T, E>,
+    any_value: impl FnOnce() -> T,
+) -> Result<Rc<T>, E> {
+    let mut error = None;
+    let value = Rc::new_cyclic(|weak| match create_fn(weak) {
+        Ok(value) => value,
+        Err(err) => {
+            error = Some(err);
+            any_value()
         }
+    });
+    error.map_or(Ok(value), Err)
+}
+
+fn garbage_node() -> Node {
+    Node {
+        name: None,
+        mesh: None,
+        parent: None,
+        children: vec![],
+        local_matrix: Matrix::IDENTITY,
     }
 }
 
 impl<'a> GltfImporter<'a> {
     fn new(json: json::Root, loader: &'a mut AssetLoader, file_name: Option<String>) -> Self {
+        println!("{:#?}", json);
         GltfImporter {
             json,
             file_name,
@@ -288,7 +313,9 @@ impl<'a> GltfImporter<'a> {
             } else {
                 let buffer_view = self.json.buffer_view(gltf_unwrap!(image.buffer_view))?;
                 let buffer = self.buffer(buffer_view.buffer)?;
-                let data = buffer[buffer_view.byte_offset..buffer_view.byte_offset + buffer_view.byte_length].to_vec();
+                let data = buffer
+                    [buffer_view.byte_offset..buffer_view.byte_offset + buffer_view.byte_length]
+                    .to_vec();
                 Ok(Rc::new(Texture {
                     state: RefCell::new(TextureState::Memory(data)),
                 }))
@@ -317,27 +344,28 @@ impl<'a> GltfImporter<'a> {
             }))
         })
     }
-    fn node(&self, id: json::NodeId, parent: Option<json::NodeId>) -> Result<Rc<Node>, Error> {
+    fn node(&self, id: json::NodeId, parent: Option<Weak<Node>>) -> Result<Rc<Node>, Error> {
         get_or_insert(&self.nodes, id, || {
-            let node = self.json.node(id)?;
-            let mesh = node.mesh.map(|id| self.mesh(id)).transpose()?;
-            let parent = parent.map(|id| Rc::downgrade(self.nodes.borrow().get(&id).unwrap()));
-            let children = node
-                .children
-                .iter()
-                .map(|c| self.node(*c, Some(id)))
-                .collect::<Result<Vec<_>, _>>()?;
-            let local_matrix = node.local_matrix();
-            let global_matrix = parent.clone().map_or(local_matrix, |n| {
-                n.upgrade().unwrap().global_matrix * local_matrix
-            });
-            Ok(Rc::new(Node {
-                mesh,
-                parent,
-                children,
-                local_matrix,
-                global_matrix,
-            }))
+            new_cyclic_fallible(
+                |weak_self| {
+                    let node = self.json.node(id)?;
+                    let mesh = node.mesh.map(|id| self.mesh(id)).transpose()?;
+                    let local_matrix = node.local_matrix();
+                    let children = node
+                        .children
+                        .iter()
+                        .map(|n| self.node(*n, Some(weak_self.clone())))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(Node {
+                        name: node.name.clone(),
+                        mesh,
+                        parent,
+                        children,
+                        local_matrix,
+                    })
+                },
+                garbage_node,
+            )
         })
     }
     pub fn scene(&self, id: json::SceneId) -> Result<Node, Error> {
@@ -348,11 +376,11 @@ impl<'a> GltfImporter<'a> {
             .map(|id| self.node(*id, None))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Node {
+            name: None,
             children: nodes,
             mesh: None,
             parent: None,
             local_matrix: Matrix::IDENTITY,
-            global_matrix: Matrix::IDENTITY,
         })
     }
     pub fn root_scene(&self) -> Result<Option<Node>, Error> {
@@ -396,40 +424,85 @@ fn translate_material(
     })
 }
 
+pub enum GltfAction {
+    Keep,
+    Skip,
+    Split,
+}
+
 impl Node {
-    fn walk(&self, fun: &mut impl FnMut(&Node)) {
-        fun(self);
-        for child in &self.children {
-            child.walk(fun);
-        }
-    }
-    pub fn to_mesh(&self) -> mesh::Mesh {
-        let mut mesh_mesh = mesh::Mesh {
-            triangles: vec![],
-            materials: vec![],
-        };
-        let mut materials = HashMap::new();
-        self.walk(&mut |node| {
-            if let Some(mesh) = &node.mesh {
-                for prim in &mesh.primitives {
-                    let mat_idx =
-                        translate_material(&prim.material, &mut mesh_mesh, &mut materials);
-                    for (i0, i1, i2) in prim.indices.iter().map(|&i| i as usize).tuples() {
-                        let vertices = [i0, i1, i2].map(|i| node.global_matrix * prim.position[i]);
-                        let uv = [i0, i1, i2].map(|i| {
-                            prim.texcoord
-                                .get(prim.material.texcoord_idx)
-                                .map_or(Vec2::default(), |a| a[i])
-                        });
-                        mesh_mesh.triangles[mat_idx].push(mesh::Triangle {
-                            vertices,
-                            uv,
-                            color: [prim.material.color; 3],
-                        });
-                    }
+    fn add_mesh_to_game_object(
+        &self,
+        game_object: &mut mesh::GameObject,
+        cache: &mut HashMap<Option<json::MaterialId>, usize>,
+        matrix: Matrix,
+    ) {
+        if let Some(mesh) = &self.mesh {
+            let out_mesh = game_object.mesh.get_or_insert_default();
+            for prim in &mesh.primitives {
+                let mat_idx = translate_material(&prim.material, out_mesh, cache);
+                for (i0, i1, i2) in prim.indices.iter().map(|&i| i as usize).tuples() {
+                    let vertices = [i0, i1, i2].map(|i| matrix * prim.position[i]);
+                    let uv = [i0, i1, i2].map(|i| {
+                        prim.texcoord
+                            .get(prim.material.texcoord_idx)
+                            .map_or(Vec2::default(), |a| a[i])
+                    });
+                    out_mesh.triangles[mat_idx].push(mesh::Triangle {
+                        vertices,
+                        uv,
+                        color: [prim.material.color; 3],
+                    });
                 }
             }
-        });
-        mesh_mesh
+        }
+    }
+    fn add_to_game_object(
+        &self,
+        game_object: &mut mesh::GameObject,
+        cache: &mut HashMap<Option<json::MaterialId>, usize>,
+        matrix: Matrix,
+        fun: &impl Fn(&Node) -> GltfAction,
+    ) {
+        match fun(self) {
+            GltfAction::Keep => {
+                let new_matrix = matrix * self.local_matrix;
+                self.add_mesh_to_game_object(game_object, cache, new_matrix);
+                for child in &self.children {
+                    child.add_to_game_object(game_object, cache, new_matrix, fun);
+                }
+            }
+            GltfAction::Skip => {}
+            GltfAction::Split => {
+                let mut new_object = GameObject {
+                    mesh: None,
+                    name: None,
+                    matrix: RefCell::new(matrix * self.local_matrix),
+                    children: vec![],
+                };
+                let mut new_cache = HashMap::new();
+                self.add_mesh_to_game_object(&mut new_object, &mut new_cache, Matrix::IDENTITY);
+                for child in &self.children {
+                    child.add_to_game_object(
+                        &mut new_object,
+                        &mut new_cache,
+                        Matrix::IDENTITY,
+                        fun,
+                    );
+                }
+                game_object.children.push(Rc::new(new_object));
+            }
+        }
+    }
+    pub fn to_game_object(&self, fun: impl Fn(&Node) -> GltfAction) -> mesh::GameObject {
+        let mut game_object = GameObject {
+            mesh: None,
+            name: None,
+            matrix: RefCell::new(self.local_matrix),
+            children: vec![],
+        };
+        let mut cache = HashMap::new();
+        self.add_to_game_object(&mut game_object, &mut cache, Matrix::IDENTITY, &fun);
+        game_object
     }
 }

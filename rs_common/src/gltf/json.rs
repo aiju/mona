@@ -52,6 +52,10 @@ pub struct Root {
     pub samplers: Vec<Sampler>,
     #[serde(default)]
     pub images: Vec<Image>,
+    #[serde(default)]
+    pub animations: Vec<Animation>,
+    #[serde(default)]
+    pub skins: Vec<Skin>,
     pub extras: Extras,
     pub extensions: Extensions,
 }
@@ -361,6 +365,59 @@ impl AccessorType {
 pub struct Buffer {
     pub uri: Option<String>,
     pub byte_length: usize,
+    pub name: Option<String>,
+    pub extras: Extras,
+    pub extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Animation {
+    pub channels: Vec<AnimationChannel>,
+    pub samplers: Vec<AnimationSampler>,
+    pub name: Option<String>,
+    pub extras: Extras,
+    pub extensions: Extensions,
+}
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AnimationChannel {
+    pub sampler: usize,
+    pub target: AnimationChannelTarget,
+    pub extras: Extras,
+    pub extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AnimationChannelTarget {
+    pub node: Option<NodeId>,
+    pub path: String,
+    pub extras: Extras,
+    pub extensions: Extensions,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AnimationSampler {
+    pub input: AccessorId,
+    pub interpolation: AnimationInterpolation,
+    pub output: AccessorId,
+    pub extras: Extras,
+    pub extensions: Extensions,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnimationInterpolation {
+    LINEAR,
+    STEP,
+    CUBICSPLINE,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skin {
+    pub inverse_bind_matrices: Option<AccessorId>,
+    pub skeleton: Option<NodeId>,
+    pub joints: Vec<NodeId>,
     pub name: Option<String>,
     pub extras: Extras,
     pub extensions: Extensions,

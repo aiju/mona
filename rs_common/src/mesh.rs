@@ -7,9 +7,9 @@ use std::{
 };
 
 use crate::{
-    assets::{AssetLoader, resolve_path},
-    geometry::{Vec2, Vec3},
-    render::{self, Backend, Context, TextureId},
+    assets::{resolve_path, AssetLoader},
+    geometry::{Matrix, Vec2, Vec3},
+    render::{self, Backend, Context, TextureId}, BarePrimitive,
 };
 
 #[repr(C)]
@@ -201,6 +201,50 @@ impl Mesh {
             if let Some(tex) = &material.texture {
                 tex.load_backend(context, loader);
             }
+        }
+    }
+}
+
+pub struct GameObject {
+    pub mesh: Option<Mesh>,
+    pub name: Option<String>,
+    pub matrix: RefCell<Matrix>,
+    pub children: Vec<Rc<GameObject>>,
+}
+
+impl Mesh {
+    fn render<B: Backend>(&self, context: &mut Context<B>, object: Matrix, view: Matrix) {
+        for (triangles, material) in self.triangles.iter().zip(&self.materials) {
+            let v: Vec<_> = triangles
+                .iter()
+                .map(|t| {
+                    BarePrimitive {
+                        vertices: t.vertices.map(From::from),
+                        uv: t.uv,
+                        color: t.color,
+                    }
+                    .transform(object)
+                    .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
+                    .transform(view)
+                })
+                .collect();
+            context.draw().opt_textured(material.texture_id()).run(&v);
+        }
+    }
+}
+
+impl GameObject {
+    pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
+        self.mesh.as_ref().map(|r| r.load(context, loader));
+        for child in &self.children {
+            child.load(context, loader);
+        }
+    }
+    pub fn render<B: Backend>(&self, context: &mut Context<B>, object: Matrix, view: Matrix) {
+        let new_matrix = object * *self.matrix.borrow();
+        self.mesh.as_ref().map(|r| r.render(context, new_matrix, view));
+        for child in &self.children {
+            child.render(context, new_matrix, view);
         }
     }
 }
