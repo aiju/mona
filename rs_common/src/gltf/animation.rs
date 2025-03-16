@@ -209,7 +209,6 @@ impl Animation {
             rotation: Vec4::from([0.0, 0.0, 0.0, 1.0]).into(),
             scale: Vec3::from([1.0, 1.0, 1.0]).into(),
             children: Default::default(),
-            matrix: Matrix::IDENTITY.into(),
             update_fn: RefCell::new(Some(Box::new(move |_, delta| {
                 update_fns.iter_mut().for_each(|f| f(delta));
             }))),

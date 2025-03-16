@@ -1,7 +1,7 @@
 use crate::{
     assets::{AssetLoader, AssetLoaderError},
     geometry::{Matrix, Vec2, Vec3, Vec4},
-    mesh::{self, Color, GameObject, SkinnedMesh, Texture, TextureState},
+    mesh::{self, Color, GameObject, Texture, TextureState},
 };
 use binary::Accessor;
 use itertools::Itertools;
@@ -519,7 +519,7 @@ impl std::ops::Mul<Transform> for Transform {
 
 fn translate_material(
     material: &Material,
-    mesh: &mut mesh::SkinnedMesh,
+    mesh: &mut mesh::Mesh,
     cache: &mut HashMap<Option<json::MaterialId>, usize>,
 ) -> usize {
     *cache.entry(material.id).or_insert_with(|| {
@@ -546,18 +546,7 @@ impl Node {
         transform: Transform,
     ) {
         if let Some(mesh) = &self.mesh {
-            let out_mesh = game_object
-                .mesh
-                .get_or_insert(either::Right(SkinnedMesh {
-                    triangles: vec![],
-                    materials: vec![],
-                    inverse_bind_matrices: self
-                        .skin
-                        .as_ref()
-                        .map_or(vec![], |s| s.inverse_bind_matrices.clone()),
-                }))
-                .as_mut()
-                .unwrap_right();
+            let out_mesh = game_object.mesh.get_or_insert_default();
             let matrix = transform.matrix();
             for prim in &mesh.primitives {
                 let mat_idx = translate_material(&prim.material, out_mesh, cache);
@@ -568,23 +557,10 @@ impl Node {
                             .get(prim.material.texcoord_idx)
                             .map_or(Vec2::default(), |a| a[i])
                     });
-                    let joints = if let Some(skin) = &self.skin {
-                        [i0, i1, i2].map(|i| {
-                            prim.joints[i]
-                                .iter()
-                                .map(|(idx, weight)| (*idx, skin.joints[*idx].clone(), *weight))
-                                .collect()
-                        })
-                    } else {
-                        Default::default()
-                    };
-                    out_mesh.triangles[mat_idx].push(mesh::SkinnedTriangle {
-                        triangle: mesh::Triangle {
-                            vertices,
-                            uv,
-                            color: [prim.material.color; 3],
-                        },
-                        joints,
+                    out_mesh.triangles[mat_idx].push(mesh::Triangle {
+                        vertices,
+                        uv,
+                        color: [prim.material.color; 3],
                     });
                 }
             }
@@ -607,7 +583,6 @@ impl Node {
             scale: scale.unwrap_or([1.0, 1.0, 1.0].into()).into(),
             children: vec![].into(),
             update_fn: RefCell::new(None),
-            matrix: Matrix::IDENTITY.into(),
         }
     }
     fn add_to_game_object(

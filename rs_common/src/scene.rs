@@ -266,7 +266,7 @@ impl GltfScene {
             rot_y: 0.0,
             x: 0.0,
             y: 2.0,
-            z: 5.0,
+            z: -5.0,
         }
     }
 }
@@ -280,7 +280,7 @@ impl<B: Backend> Scene<B> for GltfScene {
         self.root.render(context, Matrix::IDENTITY, view);
     }
     fn update(&mut self, delta: f64, input: &InputState) {
-        self.rot_x = 180.0 + (input.mouse_x() as f64) / 10.0;
+        self.rot_x = (input.mouse_x() as f64) / 10.0;
         self.rot_y = (input.mouse_y() as f64) / 10.0;
         let input_vector: Vec2 = [
             (input.is_key_down(Key::KeyD) as u32 as f64)
@@ -296,7 +296,7 @@ impl<B: Backend> Scene<B> for GltfScene {
             - (input.is_key_down(Key::KeyQ) as u32 as f64))
             * delta
             * 10.0;
-        self.root.update(delta, Matrix::IDENTITY);
+        self.root.update(delta);
         self.time += delta;
     }
 }
