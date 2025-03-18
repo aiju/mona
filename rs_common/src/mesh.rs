@@ -206,7 +206,7 @@ impl Mesh {
 }
 
 pub struct GameObject {
-    pub mesh: Option<Mesh>,
+    pub mesh: RefCell<Option<Mesh>>,
     pub name: Option<String>,
     pub position: RefCell<Vec3>,
     pub rotation: RefCell<Vec4>,
@@ -262,7 +262,7 @@ impl GameObject {
         matrix
     }
     pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
-        self.mesh.as_ref().map(|r| r.load(context, loader));
+        self.mesh.borrow().as_ref().map(|r| r.load(context, loader));
         for child in self.children.borrow().iter() {
             child.load(context, loader);
         }
@@ -270,6 +270,7 @@ impl GameObject {
     pub fn render<B: Backend>(&self, context: &mut Context<B>, object: Matrix, view: Matrix) {
         let new_matrix = object * self.local_matrix();
         self.mesh
+            .borrow()
             .as_ref()
             .map(|r| r.render(context, new_matrix, view));
         for child in self.children.borrow().iter() {

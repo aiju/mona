@@ -203,7 +203,7 @@ impl Animation {
             }
         }
         GameObject {
-            mesh: None,
+            mesh: None.into(),
             name: None,
             position: Vec3::from([0.0, 0.0, 0.0]).into(),
             rotation: Vec4::from([0.0, 0.0, 0.0, 1.0]).into(),

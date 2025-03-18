@@ -200,14 +200,14 @@ impl Matrix {
 impl std::ops::Add for Matrix {
     type Output = Matrix;
     fn add(self, rhs: Self) -> Self::Output {
-        Matrix([0, 1, 2, 3].map(|i| [0,1,2,3].map(|j| self.0[i][j] + rhs.0[i][j])))
+        Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[i][j] + rhs.0[i][j])))
     }
 }
 
 impl std::ops::Sub for Matrix {
     type Output = Matrix;
     fn sub(self, rhs: Self) -> Self::Output {
-        Matrix([0, 1, 2, 3].map(|i| [0,1,2,3].map(|j| self.0[i][j] - rhs.0[i][j])))
+        Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[i][j] - rhs.0[i][j])))
     }
 }
 
@@ -215,7 +215,7 @@ impl std::ops::Mul<f64> for Matrix {
     type Output = Matrix;
 
     fn mul(self, rhs: f64) -> Self::Output {
-        Matrix([0, 1, 2, 3].map(|i| [0,1,2,3].map(|j| self.0[i][j] * rhs)))
+        Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[i][j] * rhs)))
     }
 }
 
@@ -282,8 +282,17 @@ impl Vec3 {
     pub fn zero() -> Vec3 {
         Vec3::default()
     }
+    pub fn len_sq(self) -> f64 {
+        self * self
+    }
     pub fn len(self) -> f64 {
         (self * self).sqrt()
+    }
+    pub fn dist_sq(self, other: Self) -> f64 {
+        (self - other).len_sq()
+    }
+    pub fn dist(self, other: Self) -> f64 {
+        (self - other).len()
     }
     pub fn normalize(self) -> Vec3 {
         // TODO: can be more intelligent here
@@ -300,6 +309,53 @@ impl Vec3 {
             x: self.y * other.z - self.z * other.y,
             y: self.z * other.x - self.x * other.z,
             z: self.x * other.y - self.y * other.x,
+        }
+    }
+    pub fn cw_min(self, other: Self) -> Vec3 {
+        Vec3 {
+            x: self.x.min(other.x),
+            y: self.y.min(other.y),
+            z: self.z.min(other.z),
+        }
+    }
+    pub fn cw_max(self, other: Self) -> Vec3 {
+        Vec3 {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+            z: self.z.max(other.z),
+        }
+    }
+    pub fn all_ge(self, other: Self) -> bool {
+        self.x >= other.x && self.y >= other.y && self.z >= other.z
+    }
+    pub fn largest_axis(self) -> usize {
+        let mut axis = 0;
+        if self.y > self.x {
+            axis = 1;
+        }
+        if self.z > self[axis] {
+            axis = 2;
+        }
+        axis
+    }
+    pub fn xyz_max(self) -> f64 {
+        self.x.max(self.y.max(self.z))
+    }
+    pub fn xyz_min(self) -> f64 {
+        self.x.min(self.y.min(self.z))
+    }
+    pub fn cw_mul(self, other: Vec3) -> Vec3 {
+        Vec3 {
+            x: self.x * other.x,
+            y: self.y * other.y,
+            z: self.z * other.z,
+        }
+    }
+    pub fn cw_div(self, other: Vec3) -> Vec3 {
+        Vec3 {
+            x: self.x / other.x,
+            y: self.y / other.y,
+            z: self.z / other.z,
         }
     }
 }
@@ -364,14 +420,26 @@ impl Vec4 {
 impl std::ops::Add for Vec4 {
     type Output = Vec4;
     fn add(self, rhs: Self) -> Self::Output {
-        [self.x + rhs.x, self.y + rhs.y, self.z + rhs.z, self.w + rhs.w].into()
+        [
+            self.x + rhs.x,
+            self.y + rhs.y,
+            self.z + rhs.z,
+            self.w + rhs.w,
+        ]
+        .into()
     }
 }
 
 impl std::ops::Sub for Vec4 {
     type Output = Vec4;
     fn sub(self, rhs: Self) -> Self::Output {
-        [self.x - rhs.x, self.y - rhs.y, self.z - rhs.z, self.w - rhs.w].into()
+        [
+            self.x - rhs.x,
+            self.y - rhs.y,
+            self.z - rhs.z,
+            self.w - rhs.w,
+        ]
+        .into()
     }
 }
 

@@ -546,7 +546,8 @@ impl Node {
         transform: Transform,
     ) {
         if let Some(mesh) = &self.mesh {
-            let out_mesh = game_object.mesh.get_or_insert_default();
+            let mut mesh_var = game_object.mesh.borrow_mut();
+            let out_mesh = mesh_var.get_or_insert_default();
             let matrix = transform.matrix();
             for prim in &mesh.primitives {
                 let mat_idx = translate_material(&prim.material, out_mesh, cache);
@@ -576,7 +577,7 @@ impl Node {
             panic!("matrix in new_game_object");
         };
         GameObject {
-            mesh: None,
+            mesh: None.into(),
             name: self.name.clone(),
             position: translate.into(),
             rotation: rotate.unwrap_or([0.0, 0.0, 0.0, 1.0].into()).into(),

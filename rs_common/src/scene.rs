@@ -1,5 +1,6 @@
 use crate::{
     assets::AssetLoader,
+    collision::{Aabb, Bvh, BvhPrimitive, CapsuleCollider},
     geometry::Matrix,
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
@@ -243,6 +244,8 @@ pub struct GltfScene {
     z: f64,
     rot_x: f64,
     rot_y: f64,
+    bvh: Bvh<mesh::Triangle>,
+    visible: bool,
 }
 
 impl GltfScene {
@@ -259,6 +262,19 @@ impl GltfScene {
                 .push(std::rc::Rc::new(animation_object));
         }
         root.load(context, loader);
+        println!("building bvh");
+        let bvh = Bvh::from_primitives(
+            root.mesh
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .triangles
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        println!("done");
         Self {
             root,
             time: Default::default(),
@@ -267,19 +283,80 @@ impl GltfScene {
             x: 0.0,
             y: 2.0,
             z: -5.0,
+            bvh,
+            visible: false,
         }
     }
 }
 
+fn render_aabb<B: Backend>(context: &mut Context<B>, aabb: &Aabb, view: Matrix) {
+    let a = (aabb.max + aabb.min) * 0.5;
+    let b = (aabb.max - aabb.min) * 0.5;
+    let matrix = Matrix::translate(a.x, a.y, a.z) * Matrix::scale(b.x, b.y, b.z);
+    let v: Vec<_> = CUBE
+        .iter()
+        .map(|v| BarePrimitive::new(*v))
+        .map(move |p| p.transform(view * matrix))
+        .collect();
+    context.draw().run(&v);
+}
+
 impl<B: Backend> Scene<B> for GltfScene {
     fn render(&mut self, context: &mut Context<B>) {
+        let collider = CapsuleCollider {
+            base: [0.0, -1.0, 0.0].into(),
+            tip: [0.0, 0.0, 0.0].into(),
+            radius: 0.25,
+        }
+        .translate([self.x, self.y, self.z + 2.0].into());
+        {
+            let mut mesh_var = self.root.mesh.borrow_mut();
+            let mesh = mesh_var.as_mut().unwrap();
+            for tris in &mut mesh.triangles {
+                for tri in tris {
+                    tri.color = [Color {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                    }; 3];
+                }
+            }
+        }
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
             * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
             * Matrix::translate(-self.x, -self.y, -self.z);
+        for (idx, tri) in self.bvh.aabb_query(&collider.aabb()) {
+            render_aabb(context, &tri.aabb(), view);
+            let r = if collider.aabb().intersects(&tri.aabb()) {
+                255
+            } else {
+                0
+            };
+            let g = if collider.intersect_triangle(tri).is_some() {
+                255
+            } else {
+                0
+            };
+            let mut mesh_var = self.root.mesh.borrow_mut();
+            let mesh = mesh_var.as_mut().unwrap();
+            let mut n = 0;
+            for tris in &mut mesh.triangles {
+                if idx - n >= tris.len() {
+                    n += tris.len();
+                } else {
+                    tris[idx - n].color = [Color { r, g, b: 0 }; 3];
+                    break;
+                }
+            }
+        }
         self.root.render(context, Matrix::IDENTITY, view);
+        if self.visible {
+            render_aabb(context, &collider.aabb(), view);
+        }
     }
     fn update(&mut self, delta: f64, input: &InputState) {
+        self.visible = !input.is_key_down(Key::Space);
         self.rot_x = (input.mouse_x() as f64) / 10.0;
         self.rot_y = (input.mouse_y() as f64) / 10.0;
         let input_vector: Vec2 = [
@@ -290,12 +367,32 @@ impl<B: Backend> Scene<B> for GltfScene {
         ]
         .into();
         let delta_position = input_vector.rotate(-self.rot_x);
-        self.x += delta_position.x * delta * 10.0;
-        self.z += delta_position.y * delta * 10.0;
-        self.y += ((input.is_key_down(Key::KeyE) as u32 as f64)
-            - (input.is_key_down(Key::KeyQ) as u32 as f64))
-            * delta
-            * 10.0;
+        let new_x = self.x + delta_position.x * delta * 10.0;
+        let new_z = self.z + delta_position.y * delta * 10.0;
+        let new_y = self.y
+            + ((input.is_key_down(Key::KeyE) as u32 as f64)
+                - (input.is_key_down(Key::KeyQ) as u32 as f64))
+                * delta
+                * 10.0;
+
+        let collider = CapsuleCollider {
+            base: [0.0, -1.0, 0.0].into(),
+            tip: [0.0, 0.0, 0.0].into(),
+            radius: 0.25,
+        }
+        .translate([new_x, new_y, new_z + 2.0].into());
+
+        if self
+            .bvh
+            .aabb_query(&collider.aabb())
+            .flat_map(|(_, t)| collider.intersect_triangle(t))
+            .next()
+            .is_none()
+        {
+            self.x = new_x;
+            self.y = new_y;
+            self.z = new_z;
+        }
         self.root.update(delta);
         self.time += delta;
     }
