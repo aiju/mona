@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 pub mod geometry;
-pub mod obj_loader;
 pub mod scene;
 pub mod mesh;
 pub mod render;

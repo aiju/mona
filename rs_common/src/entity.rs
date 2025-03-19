@@ -7,8 +7,8 @@ use crate::{
     collision::{Bvh, CapsuleCollider},
     geometry::{Matrix, Vec3, Vec4},
     gltf,
-    mesh::{self, Mesh},
-    render::{Backend, Context, Triangle4},
+    mesh::Mesh,
+    render::{Backend, Context},
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -200,7 +200,7 @@ impl Component for Rc<Mesh> {
     type Storage = Vec<Option<Self>>;
 }
 
-impl Component for Bvh<mesh::Triangle> {
+impl Component for Bvh<usize> {
     type Storage = Vec<Option<Self>>;
 }
 
@@ -212,20 +212,16 @@ impl World {
     }
     pub fn render<B: Backend>(&self, context: &mut Context<B>, view: Matrix) {
         for (_, transform, mesh) in self.iter2::<Transform, Rc<Mesh>>() {
-            for (triangles, material) in mesh.triangles.iter().zip(&mesh.materials) {
-                let v: Vec<_> = triangles
-                    .iter()
-                    .map(|t| {
-                        Triangle4 {
-                            vertices: t.vertices.map(From::from),
-                            uv: t.uv,
-                            color: t.color,
-                        }
-                        .transform(transform.local_to_world)
-                        .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
-                        .transform(view)
+            for (material, idx_range) in &mesh.material_ranges {
+                let v = idx_range
+                    .clone()
+                    .map(|i| {
+                        mesh.triangle4(i)
+                            .transform(transform.local_to_world)
+                            .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
+                            .transform(view)
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
                 context.draw().opt_textured(material.texture_id()).run(&v);
             }
         }
@@ -264,13 +260,14 @@ impl World {
         }
     }
     pub fn check_collision(&self, collider: &CapsuleCollider) -> bool {
-        for (_, transform, bvh) in self.iter2::<Transform, Bvh<mesh::Triangle>>() {
+        for (idx, transform, bvh) in self.iter2::<Transform, Bvh<usize>>() {
+            let mesh = self.get::<Rc<Mesh>>(idx);
             let aabb = collider
                 .aabb()
                 .transform(transform.local_to_world.inverse_3x4());
-            for (_, tri) in bvh.aabb_query(&aabb) {
+            for idx in bvh.aabb_query(&aabb) {
                 if collider
-                    .intersect_triangle(&tri.transform(transform.local_to_world))
+                    .intersect_triangle(&mesh.triangle(*idx).transform(transform.local_to_world))
                     .is_some()
                 {
                     return true;

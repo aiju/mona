@@ -1,15 +1,11 @@
 use std::{
-    cell::RefCell,
-    collections::HashMap,
-    io::{BufRead, BufReader, Cursor, Seek},
-    path::PathBuf,
-    rc::{Rc, Weak},
+    cell::RefCell, collections::HashMap, io::{BufRead, BufReader, Cursor, Seek}, ops::Range, path::PathBuf, rc::{Rc, Weak}
 };
 
 use crate::{
     assets::{resolve_path, AssetLoader},
-    geometry::{Matrix, Vec2, Vec3},
-    render::{self, Backend, Context, TextureId},
+    geometry::{Triangle, Vec2, Vec3},
+    render::{self, Backend, Context, TextureId, Triangle4},
 };
 
 #[repr(C)]
@@ -83,17 +79,30 @@ pub struct Material {
     pub texture: Option<Rc<Texture>>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Triangle {
-    pub vertices: [Vec3; 3],
-    pub uv: [Vec2; 3],
-    pub color: [Color; 3],
-}
-
 #[derive(Default, Clone, Debug)]
 pub struct Mesh {
-    pub triangles: Vec<Vec<Triangle>>,
-    pub materials: Vec<Rc<Material>>,
+    pub vertices: Vec<Vec3>,
+    pub uv: Vec<Vec2>,
+    pub color: Vec<Color>,
+    pub triangle_indices: Vec<[usize; 3]>,
+    pub material_ranges: Vec<(Rc<Material>, Range<usize>)>,
+}
+
+impl Mesh {
+    pub fn triangle(&self, i: usize) -> Triangle {
+        let [i0, i1, i2] = self.triangle_indices[i];
+        Triangle {
+            vertices: [self.vertices[i0], self.vertices[i1], self.vertices[i2]],
+        }
+    }
+    pub fn triangle4(&self, i: usize) -> Triangle4 {
+        let [i0, i1, i2] = self.triangle_indices[i];
+        Triangle4 {
+            vertices: [self.vertices[i0].into(), self.vertices[i1].into(), self.vertices[i2].into()],
+            uv: [self.uv[i0], self.uv[i1], self.uv[i2]],
+            color: [self.color[i0], self.color[i1], self.color[i2]],
+        }
+    }
 }
 
 fn image_reader_to_render_texture<R: BufRead + Seek>(
@@ -196,20 +205,10 @@ impl Material {
 
 impl Mesh {
     pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
-        for material in &self.materials {
+        for (material, _) in &self.material_ranges {
             if let Some(tex) = &material.texture {
                 tex.load_backend(context, loader);
             }
-        }
-    }
-}
-
-impl Triangle {
-    pub fn transform(&self, matrix: Matrix) -> Self {
-        Triangle {
-            vertices: self.vertices.map(|v| matrix * v),
-            uv: self.uv,
-            color: self.color,
         }
     }
 }

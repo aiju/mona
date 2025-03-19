@@ -1,6 +1,6 @@
 use core::f64;
 
-use crate::{geometry::{Matrix, Vec3}, mesh::Triangle};
+use crate::{geometry::{Matrix, Vec3}, geometry::Triangle};
 
 mod bvh;
 mod geometry;

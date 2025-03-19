@@ -8,7 +8,7 @@ use crate::{
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
     mesh::{Color, Mesh, Texture},
-    render::{Backend, Context, TextureId, Triangle4, HEIGHT, WIDTH},
+    render::{Backend, Context, HEIGHT, TextureId, Triangle4, WIDTH},
     *,
 };
 
@@ -34,7 +34,6 @@ pub fn create<B: Backend>(
     match (name, arg) {
         ("Cube", None) => Some(Box::new(Cube::new(context, loader))),
         ("CatRoom", None) => Some(Box::new(CatRoom::new(context, loader))),
-        ("Obj", Some(path)) => Some(Box::new(ObjScene::new(context, loader, path))),
         ("Gltf", Some(path)) => Some(Box::new(GltfScene::new(context, loader, path))),
         ("Sphere", None) => Some(Box::new(Sphere::default())),
         ("Tetris", None) => Some(Box::new(tetris::Tetris::new(context, loader))),
@@ -168,77 +167,6 @@ impl<B: Backend> Scene<B> for CatRoom {
     }
 }
 
-pub struct ObjScene {
-    model: Mesh,
-    time: f64,
-    x: f64,
-    y: f64,
-    z: f64,
-    rot_x: f64,
-    rot_y: f64,
-}
-
-impl ObjScene {
-    fn new<B: Backend>(context: &mut Context<B>, loader: &mut AssetLoader, path: &str) -> Self {
-        let model = obj_loader::load_obj_file(path);
-        model.load(context, loader);
-        Self {
-            model,
-            time: Default::default(),
-            rot_x: 0.0,
-            rot_y: 0.0,
-            x: 0.0,
-            y: 2.0,
-            z: -5.0,
-        }
-    }
-}
-
-impl<B: Backend> Scene<B> for ObjScene {
-    fn render(&mut self, context: &mut Context<B>) {
-        let object = Matrix::IDENTITY;
-        let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
-            * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
-            * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
-            * Matrix::translate(-self.x, -self.y, -self.z);
-        for (triangles, material) in self.model.triangles.iter().zip(&self.model.materials) {
-            let v: Vec<_> = triangles
-                .iter()
-                .map(|t| {
-                    Triangle4 {
-                        vertices: t.vertices.map(From::from),
-                        uv: t.uv,
-                        color: t.color,
-                    }
-                    .transform(object)
-                    .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
-                    .transform(view)
-                })
-                .collect();
-            context.draw().opt_textured(material.texture_id()).run(&v);
-        }
-    }
-    fn update(&mut self, delta: f64, input: &InputState) {
-        self.rot_x = (input.mouse_x() as f64) / 10.0;
-        self.rot_y = (input.mouse_y() as f64) / 10.0;
-        let input_vector: Vec2 = [
-            (input.is_key_down(Key::KeyD) as u32 as f64)
-                - (input.is_key_down(Key::KeyA) as u32 as f64),
-            (input.is_key_down(Key::KeyW) as u32 as f64)
-                - (input.is_key_down(Key::KeyS) as u32 as f64),
-        ]
-        .into();
-        let delta_position = input_vector.rotate(-self.rot_x);
-        self.x += delta_position.x * delta * 10.0;
-        self.z += delta_position.y * delta * 10.0;
-        self.y += ((input.is_key_down(Key::KeyE) as u32 as f64)
-            - (input.is_key_down(Key::KeyQ) as u32 as f64))
-            * delta
-            * 10.0;
-        self.time += delta;
-    }
-}
-
 pub struct GltfScene {
     world: World,
     time: f64,
@@ -258,21 +186,13 @@ impl GltfScene {
         let mut world = World::new();
         world.register::<Transform>(Default::default());
         world.register::<Rc<Mesh>>(Default::default());
-        world.register::<Bvh<mesh::Triangle>>(Default::default());
+        world.register::<Bvh<usize>>(Default::default());
         scene.add_to_world(&mut world, |_| gltf::GltfAction::Split);
         world.load(context, loader);
         println!("building bvh");
         let ids = world.iter::<Rc<Mesh>>().map(|x| x.0).collect::<Vec<_>>();
         for id in ids {
-            let bvh = Bvh::from_primitives(
-                world.get::<Rc<Mesh>>(id)
-                    .triangles
-                    .iter()
-                    .flatten()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            );
-            world.set(id, bvh);
+            world.set(id, Bvh::from_mesh(world.get::<Rc<Mesh>>(id)));
         }
         println!("done");
         world.update_transforms();

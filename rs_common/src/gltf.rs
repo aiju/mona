@@ -515,21 +515,6 @@ impl std::ops::Mul<Transform> for Transform {
     }
 }
 
-fn translate_material(
-    material: &Material,
-    mesh: &mut mesh::Mesh,
-    cache: &mut HashMap<Option<json::MaterialId>, usize>,
-) -> usize {
-    *cache.entry(material.id).or_insert_with(|| {
-        let idx = mesh.materials.len();
-        mesh.triangles.push(vec![]);
-        mesh.materials.push(Rc::new(mesh::Material {
-            texture: material.texture.clone(),
-        }));
-        idx
-    })
-}
-
 pub enum GltfAction {
     Keep,
     Skip,
@@ -540,30 +525,53 @@ struct GltfTranslator<'a> {
     world: &'a mut World,
     id_stack: Vec<EntityId>,
     mesh_stack: Vec<mesh::Mesh>,
-    cache_stack: Vec<HashMap<Option<json::MaterialId>, usize>>,
+    material_cache: HashMap<Option<json::MaterialId>, Rc<mesh::Material>>,
+}
+
+fn translate_material(
+    cache: &mut HashMap<Option<json::MaterialId>, Rc<mesh::Material>>,
+    material: &Material,
+) -> Rc<mesh::Material> {
+    cache
+        .entry(material.id)
+        .or_insert_with(|| {
+            Rc::new(mesh::Material {
+                texture: material.texture.clone(),
+            })
+        })
+        .clone()
 }
 
 impl GltfTranslator<'_> {
     fn add_mesh(&mut self, node: &Node, transform: Transform) {
         if let Some(mesh) = &node.mesh {
             let out_mesh = self.mesh_stack.last_mut().unwrap();
-            let cache = self.cache_stack.last_mut().unwrap();
             let matrix = transform.matrix();
             for prim in &mesh.primitives {
-                let mat_idx = translate_material(&prim.material, out_mesh, cache);
-                for (i0, i1, i2) in prim.indices.iter().map(|&i| i as usize).tuples() {
-                    let vertices = [i0, i1, i2].map(|i| matrix * prim.position[i]);
-                    let uv = [i0, i1, i2].map(|i| {
-                        prim.texcoord
-                            .get(prim.material.texcoord_idx)
-                            .map_or(Vec2::default(), |a| a[i])
-                    });
-                    out_mesh.triangles[mat_idx].push(mesh::Triangle {
-                        vertices,
-                        uv,
-                        color: [prim.material.color; 3],
-                    });
+                let mat_idx = translate_material(&mut self.material_cache, &prim.material);
+                let index_start = out_mesh.vertices.len();
+                out_mesh
+                    .vertices
+                    .extend(prim.position.iter().map(|v| matrix * *v));
+                if let Some(texcoord) = prim.texcoord.get(prim.material.texcoord_idx) {
+                    out_mesh.uv.extend(texcoord);
+                } else {
+                    out_mesh
+                        .uv
+                        .extend(std::iter::repeat(Vec2::default()).take(prim.position.len()));
                 }
+                out_mesh
+                    .color
+                    .extend(std::iter::repeat(prim.material.color).take(prim.position.len()));
+                let tri_indices_start = out_mesh.triangle_indices.len();
+                out_mesh.triangle_indices.extend(
+                    prim.indices
+                        .iter()
+                        .map(|&i| index_start + i as usize)
+                        .tuples()
+                        .map(|(i, j, k)| [i, j, k]),
+                );
+                out_mesh.material_ranges.push((mat_idx, tri_indices_start..out_mesh.triangle_indices.len()));
             }
         }
     }
@@ -588,14 +596,12 @@ impl GltfTranslator<'_> {
             },
         );
         self.mesh_stack.push(Default::default());
-        self.cache_stack.push(Default::default());
         self.id_stack.push(id);
     }
     fn pop_entity(&mut self) -> EntityId {
         let id = self.id_stack.pop().unwrap();
         let mesh = Rc::new(self.mesh_stack.pop().unwrap());
         self.world.set(id, mesh);
-        self.cache_stack.pop();
         id
     }
     fn add_to_entity(
@@ -636,7 +642,7 @@ impl Node {
             world,
             id_stack: vec![],
             mesh_stack: vec![],
-            cache_stack: vec![],
+            material_cache: HashMap::new(),
         };
         translator.push_entity(self, Transform::default());
         translator.add_to_entity(self, Transform::default(), &fun);

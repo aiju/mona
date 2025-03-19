@@ -25,6 +25,11 @@ pub struct Vec4 {
 #[derive(Copy, Clone, Debug)]
 pub struct Matrix(pub [[f64; 4]; 4]);
 
+#[derive(Clone, Debug)]
+pub struct Triangle {
+    pub vertices: [Vec3; 3],
+}
+
 impl From<[f32; 2]> for Vec2 {
     fn from(value: [f32; 2]) -> Self {
         Vec2 {
@@ -491,6 +496,14 @@ impl std::ops::Mul<f64> for Vec4 {
             y: self.y * rhs,
             z: self.z * rhs,
             w: self.w * rhs,
+        }
+    }
+}
+
+impl Triangle {
+    pub fn transform(&self, matrix: Matrix) -> Self {
+        Triangle {
+            vertices: self.vertices.map(|v| matrix * v)
         }
     }
 }

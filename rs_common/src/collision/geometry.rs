@@ -1,4 +1,4 @@
-use crate::{geometry::Vec3, mesh::Triangle};
+use crate::geometry::{Triangle, Vec3};
 
 pub fn closest_point_on_line_segment(a: Vec3, b: Vec3, p: Vec3) -> Vec3 {
     let ab = b - a;
@@ -81,7 +81,11 @@ pub fn closest_points_of_line_segments(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -
     (p1 + d1 * s, p2 + d2 * t)
 }
 
-pub fn intersection_of_triangle_and_line(triangle: &Triangle, p: Vec3, q: Vec3) -> Option<(f64, Vec3)> {
+pub fn intersection_of_triangle_and_line(
+    triangle: &Triangle,
+    p: Vec3,
+    q: Vec3,
+) -> Option<(f64, Vec3)> {
     let [p0, p1, p2] = triangle.vertices;
     let normal = Vec3::cross(p1 - p0, p2 - p0).normalize();
     let a = (p0 - p) * normal;

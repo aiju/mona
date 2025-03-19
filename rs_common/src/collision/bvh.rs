@@ -1,7 +1,10 @@
 use core::f64;
 use std::{cell::Cell, ops::Range};
 
-use crate::{geometry::Vec3, mesh::Triangle};
+use crate::{
+    geometry::{Triangle, Vec3},
+    mesh::Mesh,
+};
 
 use super::Aabb;
 
@@ -40,24 +43,32 @@ impl BvhNode {
     }
 }
 
-pub struct Bvh<P> {
+pub struct Bvh<I> {
     nodes: Vec<BvhNode>,
-    indices: Vec<usize>,
-    primitives: Vec<P>,
+    indices: Vec<I>,
 }
 
-impl<P: BvhPrimitive> Bvh<P> {
-    pub fn from_primitives(primitives: Vec<P>) -> Self {
-        let aabb = primitives.iter().map(|p| p.aabb()).collect();
+impl<I> Bvh<I> {
+    pub fn from_primitives<P: BvhPrimitive>(
+        primitive_indices: Vec<I>,
+        primitives: impl Fn(&I) -> P,
+    ) -> Self {
+        let aabb = primitive_indices
+            .iter()
+            .map(|i| primitives(i).aabb())
+            .collect();
         let mut bvh = Bvh {
-            nodes: vec![BvhNode::leaf(aabb, 0..primitives.len())],
-            indices: (0..primitives.len()).collect(),
-            primitives,
+            nodes: vec![BvhNode::leaf(aabb, 0..primitive_indices.len())],
+            indices: primitive_indices,
         };
-        bvh.subdivide(0);
+        bvh.subdivide(&primitives, 0);
         bvh
     }
-    fn find_best_split(&self, node_idx: usize) -> (f64, usize, f64) {
+    fn find_best_split<P: BvhPrimitive>(
+        &self,
+        primitives: impl Fn(&I) -> P,
+        node_idx: usize,
+    ) -> (f64, usize, f64) {
         const BIN_COUNT: usize = 8;
         let node = &self.nodes[node_idx];
         #[derive(Clone, Default, Debug)]
@@ -71,12 +82,12 @@ impl<P: BvhPrimitive> Bvh<P> {
         for axis in 0..3 {
             let mut bins = vec![Bin::default(); BIN_COUNT];
             let mut scale = bins.len() as f64 / (node.aabb.max[axis] - node.aabb.min[axis]);
-            for &p_idx in &self.indices[node.range()] {
-                let bin_idx = (((self.primitives[p_idx].centroid()[axis] - node.aabb.min[axis])
-                    * scale) as usize)
+            for p_idx in &self.indices[node.range()] {
+                let bin_idx = (((primitives(p_idx).centroid()[axis] - node.aabb.min[axis]) * scale)
+                    as usize)
                     .min(bins.len() - 1);
                 bins[bin_idx].count += 1;
-                bins[bin_idx].aabb.merge(&self.primitives[p_idx].aabb());
+                bins[bin_idx].aabb.merge(&primitives(p_idx).aabb());
             }
             let mut costs = vec![0.0; bins.len() - 1];
             let mut left_sum = 0;
@@ -104,11 +115,11 @@ impl<P: BvhPrimitive> Bvh<P> {
         }
         (best_cost, best_axis, best_split)
     }
-    fn subdivide(&mut self, node_idx: usize) {
+    fn subdivide<P: BvhPrimitive>(&mut self, primitives: &impl Fn(&I) -> P, node_idx: usize) {
         let node = &self.nodes[node_idx];
         let aabb = node.aabb;
         let old_cost = aabb.surface_area() * (node.range().len() as f64);
-        let (cost, axis, split_pos) = self.find_best_split(node_idx);
+        let (cost, axis, split_pos) = self.find_best_split(primitives, node_idx);
         if cost >= old_cost {
             return;
         }
@@ -116,7 +127,7 @@ impl<P: BvhPrimitive> Bvh<P> {
         let mut i = range.start;
         let mut j = range.end - 1;
         while i <= j {
-            if self.primitives[self.indices[i]].centroid()[axis] < split_pos {
+            if primitives(&self.indices[i]).centroid()[axis] < split_pos {
                 i += 1;
             } else {
                 self.indices.swap(i, j);
@@ -132,27 +143,35 @@ impl<P: BvhPrimitive> Bvh<P> {
         self.nodes.push(BvhNode::leaf(
             self.indices[range.start..i]
                 .iter()
-                .map(|&i| self.primitives[i].aabb())
+                .map(|i| primitives(i).aabb())
                 .collect(),
             range.start..i,
         ));
         self.nodes.push(BvhNode::leaf(
             self.indices[i..range.end]
                 .iter()
-                .map(|&i| self.primitives[i].aabb())
+                .map(|i| primitives(i).aabb())
                 .collect(),
             i..range.end,
         ));
-        self.subdivide(left_child);
-        self.subdivide(right_child);
+        self.subdivide(primitives, left_child);
+        self.subdivide(primitives, right_child);
     }
-    pub fn aabb_query<'a>(&'a self, aabb: &'a Aabb) -> AabbQuery<'a, P> {
+    pub fn aabb_query<'a>(&'a self, aabb: &'a Aabb) -> AabbQuery<'a, I> {
         AabbQuery {
             aabb: &aabb,
             bvh: self,
             stack: vec![&self.nodes[0]],
             leaf_idx: 0,
         }
+    }
+}
+
+impl Bvh<usize> {
+    pub fn from_mesh(mesh: &Mesh) -> Self {
+        Bvh::from_primitives((0..mesh.triangle_indices.len()).collect(), |i| {
+            mesh.triangle(*i)
+        })
     }
 }
 
@@ -163,9 +182,9 @@ pub struct RayCaster {
     min_t: Cell<f64>,
 }
 
-pub struct RayCasterFrame<'a, P> {
+pub struct RayCasterFrame<'a, I> {
     ray_caster: &'a RayCaster,
-    bvh: &'a Bvh<P>,
+    bvh: &'a Bvh<I>,
     stack: Vec<&'a BvhNode>,
     leaf_idx: usize,
 }
@@ -179,7 +198,7 @@ impl RayCaster {
             min_t: f64::INFINITY.into(),
         }
     }
-    pub fn intersect_bvh<'a, P: BvhPrimitive>(&'a self, bvh: &'a Bvh<P>) -> RayCasterFrame<'a, P> {
+    pub fn intersect_bvh<'a, I>(&'a self, bvh: &'a Bvh<I>) -> RayCasterFrame<'a, I> {
         RayCasterFrame {
             ray_caster: self,
             bvh,
@@ -228,8 +247,8 @@ impl RayCaster {
     }
 }
 
-impl<'a, P: BvhPrimitive> Iterator for RayCasterFrame<'a, P> {
-    type Item = &'a P;
+impl<'a, I> Iterator for RayCasterFrame<'a, I> {
+    type Item = &'a I;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(node) = self.stack.last() {
@@ -239,7 +258,7 @@ impl<'a, P: BvhPrimitive> Iterator for RayCasterFrame<'a, P> {
                     self.leaf_idx = 0;
                     self.stack.pop();
                 } else {
-                    let r = &self.bvh.primitives[self.bvh.indices[range.start + self.leaf_idx]];
+                    let r = &self.bvh.indices[range.start + self.leaf_idx];
                     self.leaf_idx += 1;
                     return Some(r);
                 }
@@ -265,16 +284,16 @@ impl<'a, P: BvhPrimitive> Iterator for RayCasterFrame<'a, P> {
     }
 }
 
-pub struct AabbQuery<'a, P> {
+pub struct AabbQuery<'a, I> {
     aabb: &'a Aabb,
-    bvh: &'a Bvh<P>,
+    bvh: &'a Bvh<I>,
     stack: Vec<&'a BvhNode>,
     leaf_idx: usize,
 }
 
-impl<'a, P> Iterator for AabbQuery<'a, P> {
-    type Item = (usize, &'a P);
-    
+impl<'a, I> Iterator for AabbQuery<'a, I> {
+    type Item = &'a I;
+
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(node) = self.stack.last() {
             if node.is_leaf() {
@@ -283,10 +302,9 @@ impl<'a, P> Iterator for AabbQuery<'a, P> {
                     self.leaf_idx = 0;
                     self.stack.pop();
                 } else {
-                    let idx = self.bvh.indices[range.start + self.leaf_idx];
-                    let r = &self.bvh.primitives[idx];
+                    let idx = &self.bvh.indices[range.start + self.leaf_idx];
                     self.leaf_idx += 1;
-                    return Some((idx, r));
+                    return Some(idx);
                 }
             } else {
                 let left = &self.bvh.nodes[node.left_or_first];
@@ -324,68 +342,5 @@ impl<P: BvhPrimitive> BvhPrimitive for Bvh<P> {
     fn centroid(&self) -> Vec3 {
         let Aabb { min, max } = self.aabb();
         (min + max) * 0.5
-    }
-}
-
-#[cfg(test)]
-#[allow(dead_code, unused)]
-mod test {
-    use super::*;
-    use crate::mesh::Color;
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
-
-    fn load_robot() -> Vec<Triangle> {
-        let file = BufReader::new(File::open("/home/aiju/unity.tri").unwrap());
-        let mut triangles = Vec::new();
-        for line in file.lines().map(|l| l.unwrap()) {
-            let v: Vec<f64> = line.split(' ').map(|x| x.parse().unwrap()).collect();
-            triangles.push(Triangle {
-                vertices: [0, 1, 2].map(|i| [0, 1, 2].map(|j| v[3 * i + j]).into()),
-                uv: Default::default(),
-                color: [Color::WHITE; 3],
-            });
-        }
-        triangles
-    }
-
-    #[test]
-    fn ray_tracer() {
-        use rand::Rng;
-        use std::time::Instant;
-        let mut rng = rand::rng();
-        let tris = load_robot();
-        let now = Instant::now();
-        let bvh = Bvh::from_primitives(tris);
-        println!("build time {} ms", now.elapsed().as_secs_f64() * 1000.0);
-        let cam_pos = Vec3::from([-1.5, -0.2, -2.5]);
-        let mut img = image::ImageBuffer::new(640, 640);
-        let now = Instant::now();
-        for x in 0..640 {
-            for y in 0..640 {
-                let pixel_pos = Vec3::from([
-                    -2.0 + (x as f64) / 640.0 * 2.0,
-                    0.8 - (y as f64) / 640.0 * 2.0,
-                    -0.5,
-                ]);
-                let ray_caster = RayCaster::new(cam_pos, (pixel_pos - cam_pos).normalize());
-                for tri in ray_caster.intersect_bvh(&bvh) {
-                    ray_caster.intersect_triangle(tri);
-                }
-                if ray_caster.min_t.get() < f64::INFINITY {
-                    let c = 5 - ((ray_caster.min_t.get() * 42.0) as u8);
-                    *img.get_pixel_mut(x, y) = image::Rgb([c, c, c]);
-                }
-            }
-        }
-        println!(
-            "total render time {} ms",
-            now.elapsed().as_secs_f64() * 1000.0
-        );
-        println!(
-            "ray time {} us",
-            now.elapsed().as_secs_f64() * 1e6 / (640.0 * 640.0)
-        );
-        img.save("/home/aiju/foo.png").unwrap();
     }
 }
