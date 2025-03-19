@@ -104,15 +104,15 @@ impl<T: 'static> Storage<T> for Vec<Option<T>> {
     }
 }
 
-pub struct Game {
+pub struct World {
     entity_ctr: usize,
     comp_index: CompIndex,
     missing_storage: usize,
 }
 
-impl Game {
-    pub fn new() -> Game {
-        Game {
+impl World {
+    pub fn new() -> World {
+        World {
             entity_ctr: 0,
             comp_index: Default::default(),
             missing_storage: 0,
@@ -205,7 +205,7 @@ impl Component for Bvh<mesh::Triangle> {
     type Storage = Vec<Option<Self>>;
 }
 
-impl Game {
+impl World {
     pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
         for (_, mesh) in self.iter::<Rc<Mesh>>() {
             mesh.load(context, loader);

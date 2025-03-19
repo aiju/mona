@@ -1,6 +1,6 @@
 use crate::{
     assets::{AssetLoader, AssetLoaderError},
-    entity::{self, EntityId, Game},
+    entity::{self, EntityId, World},
     geometry::{Matrix, Vec2, Vec3, Vec4},
     mesh::{self, Color, Texture, TextureState},
 };
@@ -537,7 +537,7 @@ pub enum GltfAction {
 }
 
 struct GltfTranslator<'a> {
-    game: &'a mut Game,
+    world: &'a mut World,
     id_stack: Vec<EntityId>,
     mesh_stack: Vec<mesh::Mesh>,
     cache_stack: Vec<HashMap<Option<json::MaterialId>, usize>>,
@@ -574,10 +574,10 @@ impl GltfTranslator<'_> {
             scale,
         } = transform * node.transform
         else {
-            panic!("matrix in new_game_object");
+            panic!("matrix while translating from gltf");
         };
-        let id = self.game.new_entity();
-        self.game.set(
+        let id = self.world.new_entity();
+        self.world.set(
             id,
             entity::Transform {
                 local_position: translate.into(),
@@ -594,7 +594,7 @@ impl GltfTranslator<'_> {
     fn pop_entity(&mut self) -> EntityId {
         let id = self.id_stack.pop().unwrap();
         let mesh = Rc::new(self.mesh_stack.pop().unwrap());
-        self.game.set(id, mesh);
+        self.world.set(id, mesh);
         self.cache_stack.pop();
         id
     }
@@ -631,9 +631,9 @@ impl GltfTranslator<'_> {
 }
 
 impl Node {
-    pub fn add_to_game(&self, game: &mut Game, fun: impl Fn(&Node) -> GltfAction) -> EntityId {
+    pub fn add_to_world(&self, world: &mut World, fun: impl Fn(&Node) -> GltfAction) -> EntityId {
         let mut translator = GltfTranslator {
-            game,
+            world,
             id_stack: vec![],
             mesh_stack: vec![],
             cache_stack: vec![],

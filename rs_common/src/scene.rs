@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     assets::AssetLoader,
     collision::{Aabb, Bvh, CapsuleCollider},
-    entity::{Game, Transform},
+    entity::{World, Transform},
     geometry::Matrix,
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
@@ -240,7 +240,7 @@ impl<B: Backend> Scene<B> for ObjScene {
 }
 
 pub struct GltfScene {
-    game: Game,
+    world: World,
     time: f64,
     x: f64,
     y: f64,
@@ -255,29 +255,29 @@ impl GltfScene {
         let file = loader.open_file(path).unwrap();
         let importer = GltfImporter::from_reader(file, loader, Some(path.to_string())).unwrap();
         let scene = importer.root_scene().unwrap().unwrap();
-        let mut game = Game::new();
-        game.register::<Transform>(Default::default());
-        game.register::<Rc<Mesh>>(Default::default());
-        game.register::<Bvh<mesh::Triangle>>(Default::default());
-        scene.add_to_game(&mut game, |_| gltf::GltfAction::Split);
-        game.load(context, loader);
+        let mut world = World::new();
+        world.register::<Transform>(Default::default());
+        world.register::<Rc<Mesh>>(Default::default());
+        world.register::<Bvh<mesh::Triangle>>(Default::default());
+        scene.add_to_world(&mut world, |_| gltf::GltfAction::Split);
+        world.load(context, loader);
         println!("building bvh");
-        let ids = game.iter::<Rc<Mesh>>().map(|x| x.0).collect::<Vec<_>>();
+        let ids = world.iter::<Rc<Mesh>>().map(|x| x.0).collect::<Vec<_>>();
         for id in ids {
             let bvh = Bvh::from_primitives(
-                game.get::<Rc<Mesh>>(id)
+                world.get::<Rc<Mesh>>(id)
                     .triangles
                     .iter()
                     .flatten()
                     .cloned()
                     .collect::<Vec<_>>(),
             );
-            game.set(id, bvh);
+            world.set(id, bvh);
         }
         println!("done");
-        game.update_transforms();
+        world.update_transforms();
         Self {
-            game,
+            world,
             time: Default::default(),
             rot_x: 0.0,
             rot_y: 0.0,
@@ -313,7 +313,7 @@ impl<B: Backend> Scene<B> for GltfScene {
             * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
             * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
             * Matrix::translate(-self.x, -self.y, -self.z);
-        self.game.render(context, view);
+        self.world.render(context, view);
         if self.visible {
             render_aabb(context, &collider.aabb(), view);
         }
@@ -345,12 +345,12 @@ impl<B: Backend> Scene<B> for GltfScene {
         }
         .translate([new_x, new_y, new_z + 2.0].into());
 
-        if !self.game.check_collision(&collider) {
+        if !self.world.check_collision(&collider) {
             self.x = new_x;
             self.y = new_y;
             self.z = new_z;
         }
-        self.game.update_transforms();
+        self.world.update_transforms();
         self.time += delta;
     }
 }
