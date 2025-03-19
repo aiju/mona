@@ -3,8 +3,7 @@
 use clap::Parser;
 use rs_common::{
     assets::AssetLoader,
-    render::{Backend, Context, Texture},
-    *,
+    render::{Backend, BackendTriangle, Context, Texture, HEIGHT, TILE_SIZE, WIDTH}, scene,
 };
 use std::sync::Arc;
 
@@ -23,7 +22,7 @@ struct Tile {
     edge_vec: [f64; 3],
 }
 
-fn coarse_raster(stats: &mut Stats, p: &CoarseRasterIn) -> Vec<Tile> {
+fn coarse_raster(stats: &mut Stats, p: &BackendTriangle) -> Vec<Tile> {
     stats.primitives += 1;
     let mut tiles = Vec::new();
     let mut e_left = [0, 1, 2].map(|i| p.edge_mat[2][i]);
@@ -59,7 +58,7 @@ fn coarse_raster(stats: &mut Stats, p: &CoarseRasterIn) -> Vec<Tile> {
 
 fn fine_raster(
     stats: &mut Stats,
-    p: &CoarseRasterIn,
+    p: &BackendTriangle,
     tile: &Tile,
     buffer: &mut [u32],
     depth: &mut [f64],
@@ -139,7 +138,7 @@ impl Backend for ModelBackend {
         self.texture = texture.cloned();
     }
 
-    fn draw(&mut self, triangles: &[CoarseRasterIn]) {
+    fn draw(&mut self, triangles: &[BackendTriangle]) {
         let ctx = &mut self.stats;
         for p in triangles {
             for tile in coarse_raster(ctx, p) {

@@ -4,7 +4,7 @@ use crate::{debug::*, hw::*};
 use clap::Parser;
 use evdev::EvdevSource;
 use rs_common::{
-    assets::AssetLoader, input::{InputSource, InputState}, render::{Backend, Context}, *
+    assets::AssetLoader, input::{InputSource, InputState}, render::{self, Backend, BackendTriangle, Context, HEIGHT, WIDTH}, scene
 };
 use std::time::Instant;
 
@@ -25,7 +25,7 @@ struct HwTriangle {
 }
 
 impl HwTriangle {
-    fn new(c: &CoarseRasterIn) -> Self {
+    fn new(c: &BackendTriangle) -> Self {
         let mut edge_vec = [[0; 3]; 3];
         for i in 0..3 {
             for j in 0..3 {
@@ -187,7 +187,7 @@ impl Backend for HwBackend {
         }
     }
 
-    fn draw(&mut self, triangles: &[CoarseRasterIn]) {
+    fn draw(&mut self, triangles: &[BackendTriangle]) {
         self.cmd_ptr = 0x10200000;
         self.cmd_len = 0;
         for t in triangles {

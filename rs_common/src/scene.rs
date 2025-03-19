@@ -1,14 +1,14 @@
-use std::rc::Rc;
+use std::{f64::consts::PI, rc::Rc};
 
 use crate::{
     assets::AssetLoader,
     collision::{Aabb, Bvh, CapsuleCollider},
-    entity::{World, Transform},
-    geometry::Matrix,
+    entity::{Transform, World},
+    geometry::{Matrix, Vec2, Vec3},
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
-    mesh::{Mesh, Texture},
-    render::{Backend, Context, TextureId},
+    mesh::{Color, Mesh, Texture},
+    render::{Backend, Context, TextureId, Triangle4, HEIGHT, WIDTH},
     *,
 };
 
@@ -126,7 +126,7 @@ impl<B: Backend> Scene<B> for Cube {
             * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
         let v: Vec<_> = CUBE
             .iter()
-            .map(|v| BarePrimitive::new(*v))
+            .map(|v| Triangle4::new(*v))
             .map(move |p| p.transform(matrix))
             .collect();
         context.draw().textured(self.texture).run(&v);
@@ -158,7 +158,7 @@ impl<B: Backend> Scene<B> for CatRoom {
             * Matrix::rotate(30.0 * self.time, [0.0, 1.0, 0.0]);
         let v: Vec<_> = cat_room::CAT_ROOM
             .iter()
-            .map(|v| BarePrimitive::new(*v))
+            .map(|v| Triangle4::new(*v))
             .map(move |p| p.transform(matrix))
             .collect();
         context.draw().textured(self.texture).run(&v);
@@ -205,7 +205,7 @@ impl<B: Backend> Scene<B> for ObjScene {
             let v: Vec<_> = triangles
                 .iter()
                 .map(|t| {
-                    BarePrimitive {
+                    Triangle4 {
                         vertices: t.vertices.map(From::from),
                         uv: t.uv,
                         color: t.color,
@@ -295,7 +295,7 @@ fn render_aabb<B: Backend>(context: &mut Context<B>, aabb: &Aabb, view: Matrix) 
     let matrix = Matrix::translate(a.x, a.y, a.z) * Matrix::scale(b.x, b.y, b.z);
     let v: Vec<_> = CUBE
         .iter()
-        .map(|v| BarePrimitive::new(*v))
+        .map(|v| Triangle4::new(*v))
         .map(move |p| p.transform(view * matrix))
         .collect();
     context.draw().run(&v);
@@ -377,12 +377,12 @@ impl<B: Backend> Scene<B> for Sphere {
         let mut tris = Vec::new();
         for i in 0..theta_steps {
             for j in 0..phi_steps {
-                tris.push(BarePrimitive {
+                tris.push(Triangle4 {
                     vertices: [coord(i, j), coord(i + 1, j), coord(i + 1, j + 1)],
                     uv: [Vec2::default(); 3],
                     color: [Color::WHITE; 3],
                 });
-                tris.push(BarePrimitive {
+                tris.push(Triangle4 {
                     vertices: [coord(i, j), coord(i + 1, j + 1), coord(i, j + 1)],
                     uv: [Vec2::default(); 3],
                     color: [Color::WHITE; 3],

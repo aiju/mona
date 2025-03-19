@@ -3,13 +3,12 @@ use std::{any::TypeId, collections::HashMap, rc::Rc};
 use itertools::Itertools;
 
 use crate::{
-    BarePrimitive,
     assets::AssetLoader,
     collision::{Bvh, CapsuleCollider},
     geometry::{Matrix, Vec3, Vec4},
     gltf,
     mesh::{self, Mesh},
-    render::{Backend, Context},
+    render::{Backend, Context, Triangle4},
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -217,7 +216,7 @@ impl World {
                 let v: Vec<_> = triangles
                     .iter()
                     .map(|t| {
-                        BarePrimitive {
+                        Triangle4 {
                             vertices: t.vertices.map(From::from),
                             uv: t.uv,
                             color: t.color,

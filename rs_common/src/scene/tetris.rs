@@ -1,13 +1,12 @@
 use rand::{Rng, rng, rngs::ThreadRng};
 
 use crate::{
-    BarePrimitive, HEIGHT, WIDTH,
     assets::AssetLoader,
     geometry::Matrix,
     input::InputState,
     mesh::Color,
-    render::{Backend, Context},
-    scene::{CUBE, Scene},
+    render::{Backend, Context, Triangle4, HEIGHT, WIDTH},
+    scene::{Scene, CUBE},
 };
 
 type Block = u8;
@@ -108,7 +107,7 @@ impl Tetris {
         let tris = CUBE
             .iter()
             .map(|x| {
-                let mut t = BarePrimitive::new(*x).transform(object);
+                let mut t = Triangle4::new(*x).transform(object);
                 t.color = [COLORS[col as usize]; 3];
                 t.lighting(0.5, 0.5, [0.0, 0.0, 1.0].into()).transform(view)
             })
