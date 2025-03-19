@@ -1,6 +1,6 @@
 use core::f64;
 
-use crate::{geometry::Vec3, mesh::Triangle};
+use crate::{geometry::{Matrix, Vec3}, mesh::Triangle};
 
 mod bvh;
 mod geometry;
@@ -45,6 +45,16 @@ impl Aabb {
     }
     pub fn intersects(&self, other: &Aabb) -> bool {
         Vec3::all_ge(self.max, other.min) && Vec3::all_ge(other.max, self.min)
+    }
+    pub fn transform(&self, matrix: Matrix) -> Aabb {
+        let mut ret = Aabb::empty();
+        for i in 0..8 {
+            let x = if i & 1 != 0 { self.max.x } else { self.min.x };
+            let y = if i & 2 != 0 { self.max.y } else { self.min.y };
+            let z = if i & 4 != 0 { self.max.z } else { self.min.z };
+            ret.grow(matrix * Vec3 { x, y, z });
+        }
+        ret
     }
 }
 

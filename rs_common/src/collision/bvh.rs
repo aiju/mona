@@ -19,7 +19,7 @@ struct BvhNode {
 
 impl BvhNode {
     fn is_leaf(&self) -> bool {
-        self.prim_count > 0
+        self.prim_count != !0
     }
     fn range(&self) -> Range<usize> {
         self.left_or_first..self.left_or_first + self.prim_count
@@ -35,7 +35,7 @@ impl BvhNode {
         BvhNode {
             aabb,
             left_or_first: left,
-            prim_count: 0,
+            prim_count: !0,
         }
     }
 }

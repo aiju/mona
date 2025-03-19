@@ -168,7 +168,7 @@ impl AnimationData {
         }
     }
 }
-
+/*
 impl Animation {
     pub fn to_game_object(&self) -> mesh::GameObject {
         let mut update_fns: Vec<Box<dyn FnMut(f64)>> = Vec::new();
@@ -215,3 +215,4 @@ impl Animation {
         }
     }
 }
+*/

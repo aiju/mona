@@ -15,6 +15,7 @@ pub mod input;
 pub mod gltf;
 pub mod animation;
 pub mod collision;
+pub mod entity;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;

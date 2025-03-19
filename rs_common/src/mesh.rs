@@ -7,9 +7,8 @@ use std::{
 };
 
 use crate::{
-    BarePrimitive,
-    assets::{AssetLoader, resolve_path},
-    geometry::{Matrix, Vec2, Vec3, Vec4},
+    assets::{resolve_path, AssetLoader},
+    geometry::{Matrix, Vec2, Vec3},
     render::{self, Backend, Context, TextureId},
 };
 
@@ -205,84 +204,12 @@ impl Mesh {
     }
 }
 
-pub struct GameObject {
-    pub mesh: RefCell<Option<Mesh>>,
-    pub name: Option<String>,
-    pub position: RefCell<Vec3>,
-    pub rotation: RefCell<Vec4>,
-    pub scale: RefCell<Vec3>,
-    pub children: RefCell<Vec<Rc<GameObject>>>,
-    pub update_fn: RefCell<Option<Box<dyn FnMut(&GameObject, f64)>>>,
-}
-
-impl std::fmt::Debug for GameObject {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GameObject")
-            .field("name", &self.name)
-            .field("position", &*self.position.borrow())
-            .field("rotation", &*self.rotation.borrow())
-            .field("scale", &*self.scale.borrow())
-            .field("children", &*self.children.borrow())
-            .finish()
-    }
-}
-
-impl Mesh {
-    fn render<B: Backend>(&self, context: &mut Context<B>, object: Matrix, view: Matrix) {
-        for (triangles, material) in self.triangles.iter().zip(&self.materials) {
-            let v: Vec<_> = triangles
-                .iter()
-                .map(|t| {
-                    BarePrimitive {
-                        vertices: t.vertices.map(From::from),
-                        uv: t.uv,
-                        color: t.color,
-                    }
-                    .transform(object)
-                    .lighting(0.5, 0.5, [0.707, 0.0, -0.707].into())
-                    .transform(view)
-                })
-                .collect();
-            context.draw().opt_textured(material.texture_id()).run(&v);
-        }
-    }
-}
-
-impl GameObject {
-    pub fn local_matrix(&self) -> Matrix {
-        let mut matrix = Matrix::rotate_quaternion(*self.rotation.borrow());
-        for i in 0..4 {
-            for j in 0..3 {
-                matrix.0[i][j] *= self.scale.borrow()[j];
-            }
-        }
-        for i in 0..3 {
-            matrix.0[i][3] = self.position.borrow()[i];
-        }
-        matrix
-    }
-    pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
-        self.mesh.borrow().as_ref().map(|r| r.load(context, loader));
-        for child in self.children.borrow().iter() {
-            child.load(context, loader);
-        }
-    }
-    pub fn render<B: Backend>(&self, context: &mut Context<B>, object: Matrix, view: Matrix) {
-        let new_matrix = object * self.local_matrix();
-        self.mesh
-            .borrow()
-            .as_ref()
-            .map(|r| r.render(context, new_matrix, view));
-        for child in self.children.borrow().iter() {
-            child.render(context, new_matrix, view);
-        }
-    }
-    pub fn update(&self, delta: f64) {
-        if let Some(fun) = &mut *self.update_fn.borrow_mut() {
-            fun(self, delta);
-        }
-        for child in self.children.borrow().iter() {
-            child.update(delta);
+impl Triangle {
+    pub fn transform(&self, matrix: Matrix) -> Self {
+        Triangle {
+            vertices: self.vertices.map(|v| matrix * v),
+            uv: self.uv,
+            color: self.color,
         }
     }
 }

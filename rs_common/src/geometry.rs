@@ -125,6 +125,45 @@ impl Matrix {
     pub fn transpose(self) -> Matrix {
         Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[j][i])))
     }
+    pub fn inverse_3x4(self) -> Matrix {
+        let [
+            [m00, m01, m02, m03],
+            [m10, m11, m12, m13],
+            [m20, m21, m22, m23],
+            [_, _, _, _],
+        ] = self.0;
+        let f = 1.0
+            / (m01 * m12 * m20 - m02 * m11 * m20 + m02 * m10 * m21
+                - m00 * m12 * m21
+                - m01 * m10 * m22
+                + m00 * m11 * m22);
+        let mut m = Matrix([
+            [
+                (m11 * m22 - m12 * m21) * f,
+                (m02 * m21 - m01 * m22) * f,
+                (m01 * m12 - m02 * m11) * f,
+                0.0,
+            ],
+            [
+                (m12 * m20 - m10 * m22) * f,
+                (m00 * m22 - m02 * m20) * f,
+                (m02 * m10 - m00 * m12) * f,
+                0.0,
+            ],
+            [
+                (m10 * m21 - m11 * m20) * f,
+                (m01 * m20 - m00 * m21) * f,
+                (m00 * m11 - m01 * m10) * f,
+                0.0,
+            ],
+            [0.0, 0.0, 0.0, 1.0],
+        ]);
+        let x = m * Vec4::from([-m03, -m13, -m23, 1.0]);
+        m.0[0][3] = x[0];
+        m.0[1][3] = x[1];
+        m.0[2][3] = x[2];
+        m
+    }
     pub fn rotate(angle: f64, axis: [f64; 3]) -> Matrix {
         let c = (angle * PI / 180.0).cos();
         let s = (angle * PI / 180.0).sin();

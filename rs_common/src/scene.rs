@@ -1,10 +1,13 @@
+use std::rc::Rc;
+
 use crate::{
     assets::AssetLoader,
-    collision::{Aabb, Bvh, BvhPrimitive, CapsuleCollider},
+    collision::{Aabb, Bvh, CapsuleCollider},
+    entity::{Game, Transform},
     geometry::Matrix,
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
-    mesh::{GameObject, Mesh, Texture},
+    mesh::{Mesh, Texture},
     render::{Backend, Context, TextureId},
     *,
 };
@@ -237,14 +240,13 @@ impl<B: Backend> Scene<B> for ObjScene {
 }
 
 pub struct GltfScene {
-    root: GameObject,
+    game: Game,
     time: f64,
     x: f64,
     y: f64,
     z: f64,
     rot_x: f64,
     rot_y: f64,
-    bvh: Bvh<mesh::Triangle>,
     visible: bool,
 }
 
@@ -253,37 +255,35 @@ impl GltfScene {
         let file = loader.open_file(path).unwrap();
         let importer = GltfImporter::from_reader(file, loader, Some(path.to_string())).unwrap();
         let scene = importer.root_scene().unwrap().unwrap();
-        let animation = importer.animation(gltf::AnimationId(0));
-        let root = scene.to_game_object(|_| gltf::GltfAction::Keep);
-        if let Ok(animation) = animation {
-            let animation_object = animation.to_game_object();
-            root.children
-                .borrow_mut()
-                .push(std::rc::Rc::new(animation_object));
-        }
-        root.load(context, loader);
+        let mut game = Game::new();
+        game.register::<Transform>(Default::default());
+        game.register::<Rc<Mesh>>(Default::default());
+        game.register::<Bvh<mesh::Triangle>>(Default::default());
+        scene.add_to_game(&mut game, |_| gltf::GltfAction::Split);
+        game.load(context, loader);
         println!("building bvh");
-        let bvh = Bvh::from_primitives(
-            root.mesh
-                .borrow()
-                .as_ref()
-                .unwrap()
-                .triangles
-                .iter()
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
+        let ids = game.iter::<Rc<Mesh>>().map(|x| x.0).collect::<Vec<_>>();
+        for id in ids {
+            let bvh = Bvh::from_primitives(
+                game.get::<Rc<Mesh>>(id)
+                    .triangles
+                    .iter()
+                    .flatten()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            );
+            game.set(id, bvh);
+        }
         println!("done");
+        game.update_transforms();
         Self {
-            root,
+            game,
             time: Default::default(),
             rot_x: 0.0,
             rot_y: 0.0,
             x: 0.0,
             y: 2.0,
             z: -5.0,
-            bvh,
             visible: false,
         }
     }
@@ -309,48 +309,11 @@ impl<B: Backend> Scene<B> for GltfScene {
             radius: 0.25,
         }
         .translate([self.x, self.y, self.z + 2.0].into());
-        {
-            let mut mesh_var = self.root.mesh.borrow_mut();
-            let mesh = mesh_var.as_mut().unwrap();
-            for tris in &mut mesh.triangles {
-                for tri in tris {
-                    tri.color = [Color {
-                        r: 255,
-                        g: 255,
-                        b: 255,
-                    }; 3];
-                }
-            }
-        }
         let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
             * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
             * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
             * Matrix::translate(-self.x, -self.y, -self.z);
-        for (idx, tri) in self.bvh.aabb_query(&collider.aabb()) {
-            render_aabb(context, &tri.aabb(), view);
-            let r = if collider.aabb().intersects(&tri.aabb()) {
-                255
-            } else {
-                0
-            };
-            let g = if collider.intersect_triangle(tri).is_some() {
-                255
-            } else {
-                0
-            };
-            let mut mesh_var = self.root.mesh.borrow_mut();
-            let mesh = mesh_var.as_mut().unwrap();
-            let mut n = 0;
-            for tris in &mut mesh.triangles {
-                if idx - n >= tris.len() {
-                    n += tris.len();
-                } else {
-                    tris[idx - n].color = [Color { r, g, b: 0 }; 3];
-                    break;
-                }
-            }
-        }
-        self.root.render(context, Matrix::IDENTITY, view);
+        self.game.render(context, view);
         if self.visible {
             render_aabb(context, &collider.aabb(), view);
         }
@@ -382,18 +345,12 @@ impl<B: Backend> Scene<B> for GltfScene {
         }
         .translate([new_x, new_y, new_z + 2.0].into());
 
-        if self
-            .bvh
-            .aabb_query(&collider.aabb())
-            .flat_map(|(_, t)| collider.intersect_triangle(t))
-            .next()
-            .is_none()
-        {
+        if !self.game.check_collision(&collider) {
             self.x = new_x;
             self.y = new_y;
             self.z = new_z;
         }
-        self.root.update(delta);
+        self.game.update_transforms();
         self.time += delta;
     }
 }

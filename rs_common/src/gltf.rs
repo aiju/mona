@@ -1,7 +1,8 @@
 use crate::{
     assets::{AssetLoader, AssetLoaderError},
+    entity::{self, EntityId, Game},
     geometry::{Matrix, Vec2, Vec3, Vec4},
-    mesh::{self, Color, GameObject, Texture, TextureState},
+    mesh::{self, Color, Texture, TextureState},
 };
 use binary::Accessor;
 use itertools::Itertools;
@@ -61,7 +62,6 @@ pub struct Node {
     skin: Option<Rc<Skin>>,
     children: Vec<Rc<Node>>,
     transform: Transform,
-    pub game_object: RefCell<Option<Rc<GameObject>>>,
     used_by_animation: Cell<bool>,
 }
 
@@ -412,7 +412,6 @@ impl<'a> GltfImporter<'a> {
                 children,
                 transform,
                 skin,
-                game_object: None.into(),
                 used_by_animation: false.into(),
             }))
         })
@@ -429,7 +428,6 @@ impl<'a> GltfImporter<'a> {
             children: nodes,
             mesh: None,
             skin: None,
-            game_object: None.into(),
             transform: Transform::default(),
             used_by_animation: false.into(),
         })
@@ -467,7 +465,7 @@ impl json::Node {
 }
 
 impl Transform {
-    fn matrix(&self) -> Matrix {
+    pub fn matrix(&self) -> Matrix {
         match *self {
             Transform::Matrix(matrix) => matrix,
             Transform::Trs {
@@ -538,16 +536,18 @@ pub enum GltfAction {
     Split,
 }
 
-impl Node {
-    fn add_mesh_to_game_object(
-        &self,
-        game_object: &mut mesh::GameObject,
-        cache: &mut HashMap<Option<json::MaterialId>, usize>,
-        transform: Transform,
-    ) {
-        if let Some(mesh) = &self.mesh {
-            let mut mesh_var = game_object.mesh.borrow_mut();
-            let out_mesh = mesh_var.get_or_insert_default();
+struct GltfTranslator<'a> {
+    game: &'a mut Game,
+    id_stack: Vec<EntityId>,
+    mesh_stack: Vec<mesh::Mesh>,
+    cache_stack: Vec<HashMap<Option<json::MaterialId>, usize>>,
+}
+
+impl GltfTranslator<'_> {
+    fn add_mesh(&mut self, node: &Node, transform: Transform) {
+        if let Some(mesh) = &node.mesh {
+            let out_mesh = self.mesh_stack.last_mut().unwrap();
+            let cache = self.cache_stack.last_mut().unwrap();
             let matrix = transform.matrix();
             for prim in &mesh.primitives {
                 let mat_idx = translate_material(&prim.material, out_mesh, cache);
@@ -567,68 +567,79 @@ impl Node {
             }
         }
     }
-    fn new_game_object(&self, transform: Transform) -> mesh::GameObject {
+    fn push_entity(&mut self, node: &Node, transform: Transform) {
         let Transform::Trs {
             translate,
             rotate,
             scale,
-        } = transform * self.transform
+        } = transform * node.transform
         else {
             panic!("matrix in new_game_object");
         };
-        GameObject {
-            mesh: None.into(),
-            name: self.name.clone(),
-            position: translate.into(),
-            rotation: rotate.unwrap_or([0.0, 0.0, 0.0, 1.0].into()).into(),
-            scale: scale.unwrap_or([1.0, 1.0, 1.0].into()).into(),
-            children: vec![].into(),
-            update_fn: RefCell::new(None),
-        }
+        let id = self.game.new_entity();
+        self.game.set(
+            id,
+            entity::Transform {
+                local_position: translate.into(),
+                local_rotation: rotate.unwrap_or([0.0, 0.0, 0.0, 1.0].into()).into(),
+                local_scale: scale.unwrap_or([1.0, 1.0, 1.0].into()).into(),
+                local_to_world: Matrix::IDENTITY,
+                parent: self.id_stack.last().copied(),
+            },
+        );
+        self.mesh_stack.push(Default::default());
+        self.cache_stack.push(Default::default());
+        self.id_stack.push(id);
     }
-    fn add_to_game_object(
-        &self,
-        game_object: &mut mesh::GameObject,
-        cache: &mut HashMap<Option<json::MaterialId>, usize>,
+    fn pop_entity(&mut self) -> EntityId {
+        let id = self.id_stack.pop().unwrap();
+        let mesh = Rc::new(self.mesh_stack.pop().unwrap());
+        self.game.set(id, mesh);
+        self.cache_stack.pop();
+        id
+    }
+    fn add_to_entity(
+        &mut self,
+        node: &Node,
         transform: Transform,
         fun: &impl Fn(&Node) -> GltfAction,
     ) {
-        let action = if self.used_by_animation.get() {
+        let action = if node.used_by_animation.get() {
             GltfAction::Split
         } else {
-            fun(self)
+            fun(node)
         };
         match action {
             GltfAction::Keep => {
-                let new_transform = transform * self.transform;
-                self.add_mesh_to_game_object(game_object, cache, new_transform);
-                for child in &self.children {
-                    child.add_to_game_object(game_object, cache, new_transform, fun);
+                let new_transform = transform * node.transform;
+                self.add_mesh(node, new_transform);
+                for child in &node.children {
+                    self.add_to_entity(child, new_transform, fun);
                 }
             }
             GltfAction::Skip => {}
             GltfAction::Split => {
-                let mut new_object = self.new_game_object(transform);
-                let mut new_cache = HashMap::new();
-                self.add_mesh_to_game_object(&mut new_object, &mut new_cache, Transform::default());
-                for child in &self.children {
-                    child.add_to_game_object(
-                        &mut new_object,
-                        &mut new_cache,
-                        Transform::default(),
-                        fun,
-                    );
+                self.push_entity(node, transform);
+                self.add_mesh(node, Transform::default());
+                for child in &node.children {
+                    self.add_to_entity(child, Transform::default(), fun);
                 }
-                let new_object = Rc::new(new_object);
-                self.game_object.replace(Some(new_object.clone()));
-                game_object.children.borrow_mut().push(new_object);
+                self.pop_entity();
             }
         }
     }
-    pub fn to_game_object(&self, fun: impl Fn(&Node) -> GltfAction) -> mesh::GameObject {
-        let mut game_object = self.new_game_object(Transform::default());
-        let mut cache = HashMap::new();
-        self.add_to_game_object(&mut game_object, &mut cache, Transform::default(), &fun);
-        game_object
+}
+
+impl Node {
+    pub fn add_to_game(&self, game: &mut Game, fun: impl Fn(&Node) -> GltfAction) -> EntityId {
+        let mut translator = GltfTranslator {
+            game,
+            id_stack: vec![],
+            mesh_stack: vec![],
+            cache_stack: vec![],
+        };
+        translator.push_entity(self, Transform::default());
+        translator.add_to_entity(self, Transform::default(), &fun);
+        translator.pop_entity()
     }
 }
