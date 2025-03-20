@@ -1,13 +1,15 @@
 use std::{f64::consts::PI, rc::Rc};
 
+use rand::Rng;
+
 use crate::{
     assets::AssetLoader,
     collision::{Aabb, Bvh, CapsuleCollider},
-    entity::{Transform, World},
-    geometry::{Matrix, Vec2, Vec3},
+    entity::{Camera, EntityId, Transform, World},
+    geometry::{Matrix, Quaternion, Vec2, Vec3},
     gltf::GltfImporter,
     input::{InputEvent, InputState, Key},
-    mesh::{Color, Mesh, Texture},
+    mesh::{Color, Material, Mesh, Texture},
     render::{Backend, Context, HEIGHT, TextureId, Triangle4, WIDTH},
     *,
 };
@@ -104,6 +106,37 @@ pub const CUBE: &'static [[[f64; 5]; 3]] = &[
     ],
 ];
 
+fn cube_mesh() -> Rc<Mesh> {
+    let material = Rc::new(Material { texture: None });
+    Rc::new(Mesh {
+        vertices: [1.0, -1.0]
+            .into_iter()
+            .flat_map(|x| {
+                [1.0, -1.0]
+                    .into_iter()
+                    .flat_map(move |y| [1.0, -1.0].map(|z| [x, y, z].into()))
+            })
+            .collect(),
+        uv: vec![Vec2::default(); 8],
+        color: vec![Color::WHITE; 8],
+        triangle_indices: vec![
+            [0, 4, 6],
+            [0, 6, 2],
+            [1, 3, 7],
+            [1, 7, 5],
+            [0, 1, 5],
+            [0, 5, 4],
+            [2, 6, 7],
+            [2, 7, 3],
+            [0, 2, 3],
+            [0, 3, 1],
+            [4, 5, 7],
+            [4, 7, 6],
+        ],
+        material_ranges: vec![(material, 0..12)],
+    })
+}
+
 pub struct Cube {
     texture: TextureId,
     time: f64,
@@ -169,13 +202,24 @@ impl<B: Backend> Scene<B> for CatRoom {
 
 pub struct GltfScene {
     world: World,
+    player: EntityId,
+    camera_pivot: EntityId,
+    camera: EntityId,
     time: f64,
-    x: f64,
-    y: f64,
-    z: f64,
-    rot_x: f64,
-    rot_y: f64,
-    visible: bool,
+}
+
+fn randomize_mesh_colors(mesh: &Mesh) -> Mesh {
+    let mut out_mesh = Mesh::default();
+    let mut rng = rand::rng();
+    for [i0, i1, i2] in mesh.triangle_indices.iter().cloned() {
+        out_mesh.triangle_indices.push([out_mesh.vertices.len(), out_mesh.vertices.len() + 1, out_mesh.vertices.len() + 2]);
+        out_mesh.vertices.extend([mesh.vertices[i0], mesh.vertices[i1], mesh.vertices[i2]]);
+        out_mesh.uv.extend([Vec2::default(); 3]);
+        let color = Color::from([rng.random(), rng.random(), rng.random()]);
+        out_mesh.color.extend([color; 3]);
+    }
+    out_mesh.material_ranges.push((Rc::new(Material::default()), 0..out_mesh.triangle_indices.len()));
+    out_mesh
 }
 
 impl GltfScene {
@@ -187,7 +231,8 @@ impl GltfScene {
         world.register::<Transform>(Default::default());
         world.register::<Rc<Mesh>>(Default::default());
         world.register::<Bvh<usize>>(Default::default());
-        scene.add_to_world(&mut world, |_| gltf::GltfAction::Split);
+        world.register::<Camera>(Default::default());
+        scene.add_to_world(&mut world, |_| gltf::GltfAction::Keep);
         world.load(context, loader);
         println!("building bvh");
         let ids = world.iter::<Rc<Mesh>>().map(|x| x.0).collect::<Vec<_>>();
@@ -195,16 +240,47 @@ impl GltfScene {
             world.set(id, Bvh::from_mesh(world.get::<Rc<Mesh>>(id)));
         }
         println!("done");
+        let player = world.new_entity();
+        world.set(
+            player,
+            Transform {
+                local_position: Vec3::from([0.0, 2.0, -5.0]),
+                local_rotation: Quaternion::default(),
+                local_scale: Vec3::from([1.0, 1.0, 1.0]),
+                local_to_world: Matrix::IDENTITY,
+                parent: None,
+            },
+        );
+        let camera_pivot = world.new_entity();
+        world.set(
+            camera_pivot,
+            Transform {
+                local_position: Vec3::from([0.0, 0.0, 0.0]),
+                local_rotation: Quaternion::default(),
+                local_scale: Vec3::from([1.0, 1.0, 1.0]),
+                local_to_world: Matrix::IDENTITY,
+                parent: Some(player),
+            },
+        );
+        let camera = world.new_entity();
+        world.set(
+            camera,
+            Transform {
+                local_position: Vec3::from([0.0, 0.0, -2.0]),
+                local_rotation: Quaternion::default(),
+                local_scale: Vec3::from([1.0, 1.0, 1.0]),
+                local_to_world: Matrix::IDENTITY,
+                parent: Some(camera_pivot),
+            },
+        );
+        world.set(camera, Camera { fov_angle: 90.0 });
         world.update_transforms();
         Self {
             world,
-            time: Default::default(),
-            rot_x: 0.0,
-            rot_y: 0.0,
-            x: 0.0,
-            y: 2.0,
-            z: -5.0,
-            visible: false,
+            player,
+            camera,
+            camera_pivot,
+            time: 0.0,
         }
     }
 }
@@ -223,25 +299,24 @@ fn render_aabb<B: Backend>(context: &mut Context<B>, aabb: &Aabb, view: Matrix) 
 
 impl<B: Backend> Scene<B> for GltfScene {
     fn render(&mut self, context: &mut Context<B>) {
-        let collider = CapsuleCollider {
+        let Vec3 { x, y, z } = self.world.get::<Transform>(self.player).local_position;
+        CapsuleCollider {
             base: [0.0, -1.0, 0.0].into(),
             tip: [0.0, 0.0, 0.0].into(),
             radius: 0.25,
         }
-        .translate([self.x, self.y, self.z + 2.0].into());
-        let view = Matrix::projection(90.0, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
-            * Matrix::rotate(-self.rot_y, [1.0, 0.0, 0.0])
-            * Matrix::rotate(-self.rot_x, [0.0, 1.0, 0.0])
-            * Matrix::translate(-self.x, -self.y, -self.z);
-        self.world.render(context, view);
-        if self.visible {
-            render_aabb(context, &collider.aabb(), view);
-        }
+        .translate([x, y, z].into())
+        .debug_render(
+            context,
+            self.world
+                .get::<Camera>(self.camera)
+                .view_matrix(self.world.get(self.camera)),
+        );
+        self.world.render(context, self.camera);
     }
     fn update(&mut self, delta: f64, input: &InputState) {
-        self.visible = !input.is_key_down(Key::Space);
-        self.rot_x = (input.mouse_x() as f64) / 10.0;
-        self.rot_y = (input.mouse_y() as f64) / 10.0;
+        let rot_x = (input.mouse_x() as f64) / 10.0;
+        let rot_y = (input.mouse_y() as f64) / 10.0;
         let input_vector: Vec2 = [
             (input.is_key_down(Key::KeyD) as u32 as f64)
                 - (input.is_key_down(Key::KeyA) as u32 as f64),
@@ -249,10 +324,11 @@ impl<B: Backend> Scene<B> for GltfScene {
                 - (input.is_key_down(Key::KeyS) as u32 as f64),
         ]
         .into();
-        let delta_position = input_vector.rotate(-self.rot_x);
-        let new_x = self.x + delta_position.x * delta * 10.0;
-        let new_z = self.z + delta_position.y * delta * 10.0;
-        let new_y = self.y
+        let delta_position = input_vector.rotate(-rot_x);
+        let Vec3 { x, y, z } = self.world.get::<Transform>(self.player).local_position;
+        let mut new_x = x + delta_position.x * delta * 10.0;
+        let mut new_z = z + delta_position.y * delta * 10.0;
+        let mut new_y = y
             + ((input.is_key_down(Key::KeyE) as u32 as f64)
                 - (input.is_key_down(Key::KeyQ) as u32 as f64))
                 * delta
@@ -263,13 +339,16 @@ impl<B: Backend> Scene<B> for GltfScene {
             tip: [0.0, 0.0, 0.0].into(),
             radius: 0.25,
         }
-        .translate([new_x, new_y, new_z + 2.0].into());
+        .translate([new_x, new_y, new_z].into());
 
-        if !self.world.check_collision(&collider) {
-            self.x = new_x;
-            self.y = new_y;
-            self.z = new_z;
+        if self.world.check_collision(&collider).is_none() {
+            let transform: &mut Transform = self.world.get_mut(self.player);
+            transform.local_position = [new_x, new_y, new_z].into();
         }
+
+        let transform: &mut Transform = self.world.get_mut(self.camera_pivot);
+        transform.local_rotation = Quaternion::from_angle(rot_x, [0.0, 1.0, 0.0].into())
+            * Quaternion::from_angle(rot_y, [1.0, 0.0, 0.0].into());
         self.world.update_transforms();
         self.time += delta;
     }

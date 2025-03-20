@@ -4,6 +4,7 @@ use crate::{geometry::{Matrix, Vec3}, geometry::Triangle};
 
 mod bvh;
 mod geometry;
+mod debug_render;
 
 pub use bvh::{Bvh, BvhPrimitive};
 pub use geometry::*;

@@ -1,14 +1,18 @@
-use std::{any::TypeId, collections::HashMap, rc::Rc};
+use std::{
+    any::TypeId,
+    collections::{BTreeMap, HashMap},
+    rc::Rc,
+};
 
 use itertools::Itertools;
 
 use crate::{
     assets::AssetLoader,
     collision::{Bvh, CapsuleCollider},
-    geometry::{Matrix, Vec3, Vec4},
+    geometry::{Matrix, Quaternion, Vec3},
     gltf,
     mesh::Mesh,
-    render::{Backend, Context},
+    render::{Backend, Context, HEIGHT, WIDTH},
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -103,6 +107,31 @@ impl<T: 'static> Storage<T> for Vec<Option<T>> {
     }
 }
 
+impl<T: 'static> AbstractStorage for BTreeMap<EntityId, T> {
+    fn new_id(&mut self, _new_id: EntityId) {}
+
+    fn remove(&mut self, id: EntityId) {
+        self.remove(&id);
+    }
+}
+impl<T: 'static> Storage<T> for BTreeMap<EntityId, T> {
+    fn get(&self, id: EntityId) -> Option<&T> {
+        self.get(&id)
+    }
+    fn get_mut(&mut self, id: EntityId) -> Option<&mut T> {
+        self.get_mut(&id)
+    }
+    fn set(&mut self, id: EntityId, value: T) -> Option<T> {
+        self.insert(id, value)
+    }
+    fn iter(&self) -> impl Iterator<Item = (EntityId, &T)> {
+        self.iter().map(|(k, v)| (*k, v))
+    }
+    fn iter_mut(&mut self) -> impl Iterator<Item = (EntityId, &mut T)> {
+        self.iter_mut().map(|(k, v)| (*k, v))
+    }
+}
+
 pub struct World {
     entity_ctr: usize,
     comp_index: CompIndex,
@@ -186,7 +215,7 @@ impl World {
 
 pub struct Transform {
     pub local_position: Vec3,
-    pub local_rotation: Vec4,
+    pub local_rotation: Quaternion,
     pub local_scale: Vec3,
     pub local_to_world: Matrix,
     pub parent: Option<EntityId>,
@@ -204,13 +233,29 @@ impl Component for Bvh<usize> {
     type Storage = Vec<Option<Self>>;
 }
 
+pub struct Camera {
+    pub fov_angle: f64,
+}
+
+impl Component for Camera {
+    type Storage = BTreeMap<EntityId, Camera>;
+}
+
+impl Camera {
+    pub fn view_matrix(&self, transform: &Transform) -> Matrix {
+        Matrix::projection(self.fov_angle, WIDTH as f64, HEIGHT as f64, 0.1, 100.0)
+            * transform.local_to_world.inverse_3x4()
+    }
+}
+
 impl World {
     pub fn load<B: Backend>(&self, context: &mut Context<B>, loader: &mut AssetLoader) {
         for (_, mesh) in self.iter::<Rc<Mesh>>() {
             mesh.load(context, loader);
         }
     }
-    pub fn render<B: Backend>(&self, context: &mut Context<B>, view: Matrix) {
+    pub fn render<B: Backend>(&self, context: &mut Context<B>, camera: EntityId) {
+        let view = self.get::<Camera>(camera).view_matrix(self.get(camera));
         for (_, transform, mesh) in self.iter2::<Transform, Rc<Mesh>>() {
             for (material, idx_range) in &mesh.material_ranges {
                 let v = idx_range
@@ -259,21 +304,20 @@ impl World {
             i += 1;
         }
     }
-    pub fn check_collision(&self, collider: &CapsuleCollider) -> bool {
+    pub fn check_collision(&self, collider: &CapsuleCollider) -> Option<(Vec3, f64)> {
         for (idx, transform, bvh) in self.iter2::<Transform, Bvh<usize>>() {
             let mesh = self.get::<Rc<Mesh>>(idx);
             let aabb = collider
                 .aabb()
                 .transform(transform.local_to_world.inverse_3x4());
             for idx in bvh.aabb_query(&aabb) {
-                if collider
+                if let Some(r) = collider
                     .intersect_triangle(&mesh.triangle(*idx).transform(transform.local_to_world))
-                    .is_some()
                 {
-                    return true;
+                    return Some(r);
                 }
             }
         }
-        false
+        None
     }
 }

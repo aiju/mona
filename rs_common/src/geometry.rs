@@ -1,4 +1,7 @@
-use std::f64::consts::PI;
+use std::{
+    f64::consts::PI,
+    ops::{Add, Mul, Sub},
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
@@ -24,6 +27,10 @@ pub struct Vec4 {
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct Matrix(pub [[f64; 4]; 4]);
+
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug)]
+pub struct Quaternion(pub Vec4);
 
 #[derive(Clone, Debug)]
 pub struct Triangle {
@@ -76,6 +83,12 @@ impl From<[f64; 4]> for Vec4 {
             z: value[2],
             w: value[3],
         }
+    }
+}
+
+impl From<[f64; 4]> for Quaternion {
+    fn from(value: [f64; 4]) -> Self {
+        Quaternion(value.into())
     }
 }
 
@@ -184,36 +197,6 @@ impl Matrix {
             [0.0, 0.0, 0.0, 1.0],
         ])
     }
-    pub fn rotate_quaternion(q: Vec4) -> Matrix {
-        let Vec4 {
-            x: qi,
-            y: qj,
-            z: qk,
-            w: qr,
-        } = q;
-        let s = 2.0 / (qi * qi + qj * qj + qk * qk + qr * qr);
-        Matrix([
-            [
-                1.0 - s * (qj * qj + qk * qk),
-                s * (qi * qj - qk * qr),
-                s * (qi * qk + qj * qr),
-                0.0,
-            ],
-            [
-                s * (qi * qj + qk * qr),
-                1.0 - s * (qi * qi + qk * qk),
-                s * (qj * qk - qi * qr),
-                0.0,
-            ],
-            [
-                s * (qi * qk - qj * qr),
-                s * (qj * qk + qi * qr),
-                1.0 - s * (qi * qi + qj * qj),
-                0.0,
-            ],
-            [0.0, 0.0, 0.0, 1.0],
-        ])
-    }
     pub fn translate(x: f64, y: f64, z: f64) -> Matrix {
         Matrix([
             [1.0, 0.0, 0.0, x],
@@ -241,21 +224,21 @@ impl Matrix {
     }
 }
 
-impl std::ops::Add for Matrix {
+impl Add for Matrix {
     type Output = Matrix;
     fn add(self, rhs: Self) -> Self::Output {
         Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[i][j] + rhs.0[i][j])))
     }
 }
 
-impl std::ops::Sub for Matrix {
+impl Sub for Matrix {
     type Output = Matrix;
     fn sub(self, rhs: Self) -> Self::Output {
         Matrix([0, 1, 2, 3].map(|i| [0, 1, 2, 3].map(|j| self.0[i][j] - rhs.0[i][j])))
     }
 }
 
-impl std::ops::Mul<f64> for Matrix {
+impl Mul<f64> for Matrix {
     type Output = Matrix;
 
     fn mul(self, rhs: f64) -> Self::Output {
@@ -263,7 +246,7 @@ impl std::ops::Mul<f64> for Matrix {
     }
 }
 
-impl std::ops::Mul<Matrix> for Matrix {
+impl Mul<Matrix> for Matrix {
     type Output = Matrix;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -279,7 +262,7 @@ impl std::ops::Mul<Matrix> for Matrix {
     }
 }
 
-impl std::ops::Mul<Vec3> for Matrix {
+impl Mul<Vec3> for Matrix {
     type Output = Vec3;
 
     fn mul(self, rhs: Vec3) -> Self::Output {
@@ -293,7 +276,7 @@ impl std::ops::Mul<Vec3> for Matrix {
     }
 }
 
-impl std::ops::Mul<Vec4> for Matrix {
+impl Mul<Vec4> for Matrix {
     type Output = Vec4;
 
     fn mul(self, rhs: Vec4) -> Self::Output {
@@ -404,21 +387,21 @@ impl Vec3 {
     }
 }
 
-impl std::ops::Add for Vec3 {
+impl Add for Vec3 {
     type Output = Vec3;
     fn add(self, rhs: Self) -> Self::Output {
         [self.x + rhs.x, self.y + rhs.y, self.z + rhs.z].into()
     }
 }
 
-impl std::ops::Sub for Vec3 {
+impl Sub for Vec3 {
     type Output = Vec3;
     fn sub(self, rhs: Self) -> Self::Output {
         [self.x - rhs.x, self.y - rhs.y, self.z - rhs.z].into()
     }
 }
 
-impl std::ops::Mul<f64> for Vec3 {
+impl Mul<f64> for Vec3 {
     type Output = Vec3;
 
     fn mul(self, rhs: f64) -> Self::Output {
@@ -430,7 +413,7 @@ impl std::ops::Mul<f64> for Vec3 {
     }
 }
 
-impl std::ops::Mul for Vec3 {
+impl Mul for Vec3 {
     type Output = f64;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -461,7 +444,7 @@ impl Vec4 {
     }
 }
 
-impl std::ops::Add for Vec4 {
+impl Add for Vec4 {
     type Output = Vec4;
     fn add(self, rhs: Self) -> Self::Output {
         [
@@ -474,7 +457,7 @@ impl std::ops::Add for Vec4 {
     }
 }
 
-impl std::ops::Sub for Vec4 {
+impl Sub for Vec4 {
     type Output = Vec4;
     fn sub(self, rhs: Self) -> Self::Output {
         [
@@ -487,7 +470,7 @@ impl std::ops::Sub for Vec4 {
     }
 }
 
-impl std::ops::Mul<f64> for Vec4 {
+impl Mul<f64> for Vec4 {
     type Output = Vec4;
 
     fn mul(self, rhs: f64) -> Self::Output {
@@ -503,7 +486,79 @@ impl std::ops::Mul<f64> for Vec4 {
 impl Triangle {
     pub fn transform(&self, matrix: Matrix) -> Self {
         Triangle {
-            vertices: self.vertices.map(|v| matrix * v)
+            vertices: self.vertices.map(|v| matrix * v),
         }
+    }
+}
+
+impl Default for Quaternion {
+    fn default() -> Self {
+        [0.0, 0.0, 0.0, 1.0].into()
+    }
+}
+
+impl Quaternion {
+    pub fn from_angle(angle: f64, axis: Vec3) -> Quaternion {
+        let c = f64::cos(angle * PI / 360.0);
+        let s = f64::sin(angle * PI / 360.0);
+        let Vec3 { x, y, z } = axis.normalize();
+        [x * s, y * s, z * s, c].into()
+    }
+}
+
+impl Mul<Quaternion> for Quaternion {
+    type Output = Quaternion;
+    fn mul(self, rhs: Quaternion) -> Self::Output {
+        let Vec4 {
+            x: x1,
+            y: y1,
+            z: z1,
+            w: w1,
+        } = self.0;
+        let Vec4 {
+            x: x2,
+            y: y2,
+            z: z2,
+            w: w2,
+        } = rhs.0;
+        Quaternion(Vec4 {
+            w: w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            x: w2 * x1 + w1 * x2 - y2 * z1 + y1 * z2,
+            y: w2 * y1 + w1 * y2 - x1 * z2 + z1 * x2,
+            z: w2 * z1 + w1 * z2 - x2 * y1 + x1 * y2,
+        })
+    }
+}
+
+impl From<Quaternion> for Matrix {
+    fn from(q: Quaternion) -> Matrix {
+        let Vec4 {
+            x: qi,
+            y: qj,
+            z: qk,
+            w: qr,
+        } = q.0;
+        let s = 2.0 / (qi * qi + qj * qj + qk * qk + qr * qr);
+        Matrix([
+            [
+                1.0 - s * (qj * qj + qk * qk),
+                s * (qi * qj - qk * qr),
+                s * (qi * qk + qj * qr),
+                0.0,
+            ],
+            [
+                s * (qi * qj + qk * qr),
+                1.0 - s * (qi * qi + qk * qk),
+                s * (qj * qk - qi * qr),
+                0.0,
+            ],
+            [
+                s * (qi * qk - qj * qr),
+                s * (qj * qk + qi * qr),
+                1.0 - s * (qi * qi + qj * qj),
+                0.0,
+            ],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
     }
 }

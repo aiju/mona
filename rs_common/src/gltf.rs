@@ -1,7 +1,7 @@
 use crate::{
     assets::{AssetLoader, AssetLoaderError},
     entity::{self, EntityId, World},
-    geometry::{Matrix, Vec2, Vec3, Vec4},
+    geometry::{Matrix, Quaternion, Vec2, Vec3, Vec4},
     mesh::{self, Color, Texture, TextureState},
 };
 use binary::Accessor;
@@ -70,7 +70,7 @@ pub enum Transform {
     Matrix(Matrix),
     Trs {
         translate: Vec3,
-        rotate: Option<Vec4>,
+        rotate: Option<Quaternion>,
         scale: Option<Vec3>,
     },
 }
@@ -473,7 +473,7 @@ impl Transform {
                 rotate,
                 scale,
             } => {
-                let mut matrix = rotate.map_or(Matrix::IDENTITY, Matrix::rotate_quaternion);
+                let mut matrix = rotate.map_or(Matrix::IDENTITY, Into::into);
                 if let Some(scale) = scale {
                     for i in 0..4 {
                         for j in 0..3 {
